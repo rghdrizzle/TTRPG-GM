@@ -1,0 +1,34 @@
+services:
+  database:
+    image: postgres:17
+    ports:
+      - 5432:5432
+    volumes:
+      - vol-postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: postgres
+      #POSTGRES_PASSWORD: password #test
+      POSTGRES_DB: postgres
+    secrets:
+      - dbpassword
+  redis:
+    image: redis:latest
+    ports:
+      - 6379:6379
+    volumes:
+      - redis-data:/data
+    environment:
+      - REDIS_ARGS=--requirepass ${REDIS_PASS:-lol123} --appendonly yes
+    secrets:
+      - redispass
+
+      
+secrets:
+  dbpassword:
+    environment: POSTGRES_PASSWORD
+  redispass:
+    environment: REDIS_PASS
+
+volumes:
+  vol-postgres:
+  redis-data:
