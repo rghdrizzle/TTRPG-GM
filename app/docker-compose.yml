@@ -1,6 +1,6 @@
 services:
   database:
-    image: postgres:17
+    image: pgvector/pgvector:pg18-trixie
     ports:
       - 5432:5432
     volumes:
