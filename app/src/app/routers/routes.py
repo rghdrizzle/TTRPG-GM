@@ -14,3 +14,7 @@ async def read_users():
 @router.post("/register",status_code=200)
 async def signup(body: Dict,db: get_db_session):
     return UserController(db).register_user(body)
+
+@router.post("/login",status_code=200)
+async def signup(body: Dict,db: get_db_session):
+    return UserController(db).login(body)

@@ -14,7 +14,6 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_after: int = ACCESS_TOKEN_EXPIRE_MINUTES):
-    ''' encode dict with provided expiry ion minutes '''
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(minutes=expires_after)
     to_encode.update({"exp": expire})
