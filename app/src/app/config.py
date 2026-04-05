@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     database_url: str
 
     secret_key: str
-
+    
     redis_password: str
     redis_url: str = "redis://localhost:6379"
 
