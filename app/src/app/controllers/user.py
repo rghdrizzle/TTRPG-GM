@@ -28,7 +28,7 @@ class UserController():
         return validated
 
     def register_user(self,user_info):
-        self.validate_user_info(user_info)
+        self.validate_user(user_info)
         selectedUser = self.db.query(db.Users).filter(
             db.Users.email == user_info["email"]
         ).first()
@@ -67,7 +67,7 @@ class UserController():
                 detail=f'Missing password in request'
             )
         
-        selectedUser = db.query(db.Users).filter(db.Users.email == email).first()
+        selectedUser = self.db.query(db.Users).filter(db.Users.email == email).first()
         if not selectedUser:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -81,7 +81,7 @@ class UserController():
             )
         return {
             "status": 200,
-            "message": "User created successfully",
+            "message": "User logged in successfully",
             "payload": {
                 "token": create_access_token(
                     {

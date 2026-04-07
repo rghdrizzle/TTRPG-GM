@@ -4,10 +4,10 @@ services:
     ports:
       - 5432:5432
     volumes:
-      - vol-postgres:/var/lib/postgresql/data
+      - vol-postgres:/var/lib/postgresql
     environment:
       POSTGRES_USER: postgres
-      #POSTGRES_PASSWORD: password #test
+      POSTGRES_PASSWORD: password #test
       POSTGRES_DB: postgres
     secrets:
       - dbpassword

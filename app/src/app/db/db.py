@@ -4,14 +4,12 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Column, DateTime, Integer, Table
 
 
-engine = create_engine('postgresql://postgres:password@localhost:5432/ttrpg')
+engine = create_engine('postgresql://postgres:password@localhost:5432/postgres')
 
 Base = declarative_base()
 
 class BaseModel(Base):
-    """
-    ElevateBase is extended version of Base Model with extra column and functions
-    """
+
 
     __abstract__ = True
     __table__: Table
@@ -24,9 +22,9 @@ class Users(BaseModel):
     __tablename__ = "users"
     username = Column(String(250),nullable=False)
     email = Column(String(250), nullable=True)
-
+    password = Column(String(250),nullable=False)
     def __repr__(self):
-        return f"<Users(id = '{self.id}',username='{self.username}', email='{self.email}')>"
+        return f"<Users(id = '{self.id}',username='{self.username}', email='{self.email}', password='{self.password}')>"
     
 
 

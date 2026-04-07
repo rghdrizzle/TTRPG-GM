@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone
 from app.utils.constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto") #note, we are using an old version of bcrypt ( 3.2) because the v5 has bytes cap
+
 
 
 def verify_password(password,hashed_pass):
