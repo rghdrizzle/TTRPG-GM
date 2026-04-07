@@ -7,9 +7,7 @@ from app.controllers.user import UserController
 router = APIRouter()
 
 
-@router.get("/health", status_code=200)
-async def read_users():
-    return {"health":"ok"}
+
 
 
 @router.post("/register",status_code=200)
@@ -19,3 +17,8 @@ async def signup(body: Dict,db: Session = Depends(get_db_session)):
 @router.post("/login",status_code=200)
 async def signup(body: Dict,db: Session = Depends(get_db_session)):
     return UserController(db).login(body)
+
+
+@router.get("/health", status_code=200)
+async def read_users():
+    return {"health":"ok"}
