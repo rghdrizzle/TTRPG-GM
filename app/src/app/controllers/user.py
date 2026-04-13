@@ -47,7 +47,7 @@ class UserController():
             "message": "User created successfully",
             "payload": {
                 "usernamename": userObj.username,
-                "id": userObj.id,
+                "id": str(userObj.id),
                 "email": userObj.email,
             }
         }
@@ -86,7 +86,7 @@ class UserController():
                 "token": create_access_token(
                     {
                         "username": selectedUser.username,
-                        "id": selectedUser.id,
+                        "id": str(selectedUser.id),
                         "email": selectedUser.email,
                     }
                 )

@@ -1,20 +1,23 @@
-from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table
+from sqlalchemy.dialects.postgresql import UUID  # ← this is missing
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import Column, DateTime, Integer, Table
-
+import uuid
 
 engine = create_engine('postgresql://postgres:password@localhost:5432/postgres')
-
 Base = declarative_base()
 
 class BaseModel(Base):
-
-
     __abstract__ = True
     __table__: Table
-
-    id = Column(Integer, unique=True, autoincrement=True, nullable=False, index=True, primary_key=True)
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        unique=True,
+        nullable=False,
+        index=True
+    )
 
 
 # User table
