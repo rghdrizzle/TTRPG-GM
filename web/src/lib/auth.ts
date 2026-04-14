@@ -14,7 +14,7 @@ export function logout() {
 export function requireAuth(): string | null {
   const token = localStorage.getItem("token")
   if (!token) {
-    window.location.href = "/login"
+    window.location.href = "/unauthorized"
   }
   return token
 }

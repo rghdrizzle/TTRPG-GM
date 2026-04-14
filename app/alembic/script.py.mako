@@ -20,6 +20,7 @@ depends_on: Union[str, Sequence[str], None] = ${repr(depends_on)}
 
 def upgrade() -> None:
     """Upgrade schema."""
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")  # to enable pg vector
     ${upgrades if upgrades else "pass"}
 
 

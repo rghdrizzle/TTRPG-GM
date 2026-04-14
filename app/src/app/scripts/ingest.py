@@ -2,11 +2,32 @@ import os
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_cohere import CohereEmbeddings
+from app.db import db
+import time
 # from langchain_community.vectorstores import Chroma
 
 '''
-This script is only meant to be ran once in the beginning to ingest and push the embedded vectors to the pgvector database in postgres
+This script is only meant to be ran once in the beginning to ingest the guidebooks and push the embedded vectors to the pgvector database in postgres
+This is also run multiple times for multiple guidebooks
 '''
+session = db.get_db_session()
+'''
+Function to insert document meta data to the document table
+'''
+def insertDocument():
+    existing = session.query(db.Document).filter_by(file_path="pdfs/fist.pdf").first()
+    if existing:
+        print("Document already exists, script might be running again for the same rulebook")
+        return existing.id
+    document = db.Document(
+        title="FIST",
+        system="FIST TTRPG",
+        file_path="pdfs/fist.pdf",
+    )
+    session.add(document)
+    session.commit()
+    return document.id
+
 
 DOC_PATH = "C:/Users/luqma/Documents/GitHub/TTRPG-GM/app/src/app/pdfs/fist.pdf"
 CHROMA_PATH = "chuck" 
@@ -20,21 +41,35 @@ pages = loader.load()
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
 chunks = text_splitter.split_documents(pages)
 
+documentId = insertDocument()
+
 # use cohere Embedding model to embedd the chunks
 embeddings = CohereEmbeddings(model="embed-english-v3.0",
     cohere_api_key=os.getenv("COHERE_API_KEY"))
 
 
-print(f"Total chunks: {len(chunks)}")
+print(f"Embedding {len(chunks)} chunks...")
+for i, chunk in enumerate(chunks):
+    vector = embeddings.embed_query(chunk.page_content) # embedding the chunk's content
 
-for i, chunk in enumerate(chunks[100:105]):
-    print(f"\n--- CHUNK {i+1} ---")
-    print(chunk.page_content[:300])
-    print(f"Page: {chunk.metadata.get('page', 'unknown')}")
+    # adding the chunk to the database
+    db_chunk = db.Chunks(
+        document_id=documentId,
+        content=chunk.page_content,
+        section=chunk.metadata.get("page", ""),
+        embedding=vector,
+    )
+    session.add(db_chunk)
 
-# embed just one of the chunks to test
-vector = embeddings.embed_query(chunks[104].page_content)
+    # commit every 50 chunks so if it fails nothing is lost
+    if i % 50 == 0:
+        session.commit()
+        print(f"Inserted {i}/{len(chunks)} chunks")
+    
+    time.sleep(0.7) # due to cohere free api key limit
 
-print(f"Vector dimensions: {len(vector)}")
-print(f"First 10 numbers: {vector[:10]}")
-print(f"Chunk text was: {chunks[104].page_content[:100]}")
+session.commit()
+session.close()
+print(f"Done — {len(chunks)} chunks stored")
+
+
