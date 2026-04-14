@@ -28,7 +28,6 @@ def insertDocument():
     session.commit()
     return document.id
 
-
 DOC_PATH = "C:/Users/luqma/Documents/GitHub/TTRPG-GM/app/src/app/pdfs/fist.pdf"
 CHROMA_PATH = "chuck" 
 
@@ -49,7 +48,7 @@ embeddings = CohereEmbeddings(model="embed-english-v3.0",
 
 
 print(f"Embedding {len(chunks)} chunks...")
-for i, chunk in enumerate(chunks):
+for i, chunk in enumerate(chunks): # so far it inserted 750 chunks
     vector = embeddings.embed_query(chunk.page_content) # embedding the chunk's content
 
     # adding the chunk to the database
