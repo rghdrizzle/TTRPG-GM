@@ -59,7 +59,7 @@ class Chunks(Base):
     document_id = Column(UUID, ForeignKey("documents.id"))
     content = Column(String)
     section = Column(String)
-    embedding = Column(Vector(1024))  # 1024 since that's what cohere vector dimensions are
+    embedding = Column(Vector(768))  # 768 since that's what ollama embed vector dimensions are
 
 Base.metadata.create_all(engine) # This creates all the tables in the engine
 

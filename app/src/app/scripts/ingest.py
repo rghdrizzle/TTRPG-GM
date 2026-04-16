@@ -2,6 +2,7 @@ import os
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_cohere import CohereEmbeddings
+from langchain_ollama import OllamaEmbeddings
 from app.db import db
 import time
 # from langchain_community.vectorstores import Chroma
@@ -43,9 +44,9 @@ chunks = text_splitter.split_documents(pages)
 documentId = insertDocument()
 
 # use cohere Embedding model to embedd the chunks
-embeddings = CohereEmbeddings(model="embed-english-v3.0",
-    cohere_api_key=os.getenv("COHERE_API_KEY"))
-
+# embeddings = CohereEmbeddings(model="embed-english-v3.0",
+#     cohere_api_key=os.getenv("COHERE_API_KEY"))
+embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
 print(f"Embedding {len(chunks)} chunks...")
 for i, chunk in enumerate(chunks): # so far it inserted 750 chunks
