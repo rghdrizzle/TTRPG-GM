@@ -61,6 +61,38 @@ class Chunks(Base):
     section = Column(String)
     embedding = Column(Vector(768))  # 768 since that's what ollama embed vector dimensions are
 
+### tables related to the campaigns
+
+class Campaign(BaseModel):
+    __tablename__ = "campaigns"
+    document_id = Column(UUID, ForeignKey("documents.id"))
+    summary = Column(String)
+    created_at = Column(DateTime, default=datetime.now)
+    name        = Column(String)
+
+class Sessions(BaseModel):
+    __tablename__ = "sessions"
+    campaign_id = Column(UUID, ForeignKey("campaigns.id"))
+    created_at = Column(DateTime, default=datetime.now)
+    ended_at  = Column(DateTime)
+    name        = Column(String)
+
+class Turns(BaseModel):
+    __tablename__ = "turns"
+    session_id = Column(UUID, ForeignKey("sessions.id"))
+    player_msg = Column(String)
+    gm_response = Column(String)
+    created_at = Column(DateTime, default=datetime.now)
+
+class Entities(BaseModel):
+    __tablename__ = "entities"
+    campaign_id = Column(UUID, ForeignKey("campaigns.id"))
+    type = Column(String)
+    name = Column(String)
+    description = Column(String)
+    state          = Column(String)
+    created_at = Column(DateTime, default=datetime.now)
+
 Base.metadata.create_all(engine) # This creates all the tables in the engine
 
 # get db session to perform database queries

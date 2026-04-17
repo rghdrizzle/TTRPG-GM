@@ -18,7 +18,7 @@ def find_similar_embeddings(query_embedding, limit=5):
     query = session.query(db.Chunks, db.Chunks.embedding.cosine_distance(query_embedding).label("distance")).filter(db.Chunks.embedding.cosine_distance(query_embedding) < similarity_threshold).order_by("distance").limit(k).all()
     return query
 
-query = "create a character for me and then set me up in a situation that is intense"
+query = "From the given rulebook and based on the character creation stats and stuff, create a character wioth stats and display it to me. After that explain the lore of the world briefly and the rules"
 
 embedding = OllamaEmbeddings(model="nomic-embed-text")
 
