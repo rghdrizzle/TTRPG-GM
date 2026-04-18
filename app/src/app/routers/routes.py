@@ -30,3 +30,7 @@ async def read_users():
 @protected_router.get("/test-auth",status_code=200)
 async def test():
     return {"auth-status":"authenticated"}
+
+@protected_router.get("/campaigns/lol")
+async def get_campaign():
+    return {"id":  "asdasd"}
