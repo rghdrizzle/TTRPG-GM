@@ -31,6 +31,6 @@ async def read_users():
 async def test():
     return {"auth-status":"authenticated"}
 
-@protected_router.get("/campaigns/lol")
+@protected_router.get("/campaigns/new")
 async def get_campaign():
     return {"id":  "asdasd"}
