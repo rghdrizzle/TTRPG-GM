@@ -3,6 +3,8 @@ from typing import Dict
 from app.db.db import get_db_session
 from sqlalchemy.orm import Session
 from app.controllers.user import UserController
+from app.db.db import Document
+import app.controllers.campaign
 from app.middleware.auth import get_current_user
 
 router = APIRouter()
@@ -32,5 +34,16 @@ async def test():
     return {"auth-status":"authenticated"}
 
 @protected_router.get("/campaigns/new")
-async def get_campaign():
-    return {"id":  "asdasd"}
+async def get_campaign(session: Session = Depends(get_db_session)):
+    documentObj = session.query(Document).filter_by(file_path="pdfs/fist.pdf").first() # temp. Todo: fetch document from selected document from a list when creating new campaign 
+    campaign_id = get_campaign(documentObj.id)
+    return {"id":  campaign_id}
+
+@protected_router.get("/campaigns")
+async def get_campaigns_list(session: Session = Depends(get_db_session)):
+    return get_campaigns_list()
+
+
+# List rulebooks when creating new campaign
+
+# chat endpoint with campaign id

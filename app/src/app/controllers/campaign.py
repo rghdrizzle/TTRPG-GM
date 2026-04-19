@@ -14,4 +14,15 @@ def create_new_campaign(document_id):
     )
     session.add(campaign)
     session.commit()
-    return campaign
+    return campaign.id
+
+
+def get_campaigns():
+    campaigns = session.query(db.Campaign.name).all()
+    return {
+            "status": 200,
+            "message": "campaigns listed",
+            "payload": {
+                "campaigns": campaigns
+            }
+        }

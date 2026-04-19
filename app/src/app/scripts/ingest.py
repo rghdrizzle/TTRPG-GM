@@ -30,7 +30,6 @@ def insertDocument():
     return document.id
 
 DOC_PATH = "C:/Users/luqma/Documents/GitHub/TTRPG-GM/app/src/app/pdfs/fist.pdf"
-CHROMA_PATH = "chuck" 
 
 
 # loading the pdf using langchain's pdf loader
