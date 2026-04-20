@@ -6,10 +6,10 @@ from fastapi import HTTPException, status
 
 session = get_db_session()
 
-def create_new_campaign(document_id):
+def create_new_campaign(campaign_info,document_id):
 
     campaign = db.Campaign(
-        name = "test",
+        name = campaign_info["name"],
         document_id = document_id
     )
     session.add(campaign)
@@ -18,7 +18,15 @@ def create_new_campaign(document_id):
 
 
 def get_campaigns():
-    campaigns = session.query(db.Campaign.name).all()
+    campaigns = session.query(db.Campaign.id, db.Campaign.name).all()
+    campaigns = [
+        {
+            "id": str(c.id),
+            "name": c.name
+        }
+        for c in campaigns
+    ]
+
     return {
             "status": 200,
             "message": "campaigns listed",

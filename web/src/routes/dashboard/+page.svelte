@@ -17,10 +17,13 @@
   async function fetchCampaigns() {
     const token = getToken()
     const res = await fetch(`${import.meta.env.VITE_API_URL}/campaigns`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${getToken()}` },
     })
-    if (res.ok) campaigns = await res.json()
-    loading = false
+    if (res.ok) {
+      const data = await res.json()
+      campaigns = data.payload.campaigns
+      loading = false
+    }
   }
 </script>
 

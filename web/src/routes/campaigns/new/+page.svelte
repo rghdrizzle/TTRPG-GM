@@ -86,7 +86,7 @@
 
   async function createCampaign() {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/campaigns`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/campaigns/new`, {
         method:  "POST",
         headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({

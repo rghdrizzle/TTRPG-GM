@@ -4,7 +4,7 @@ from app.db.db import get_db_session
 from sqlalchemy.orm import Session
 from app.controllers.user import UserController
 from app.db.db import Document
-import app.controllers.campaign
+import app.controllers.campaign as campaign
 from app.middleware.auth import get_current_user
 
 router = APIRouter()
@@ -33,15 +33,15 @@ async def read_users():
 async def test():
     return {"auth-status":"authenticated"}
 
-@protected_router.get("/campaigns/new")
-async def get_campaign(session: Session = Depends(get_db_session)):
+@protected_router.post("/campaigns/new")
+async def get_campaign(body: Dict,session: Session = Depends(get_db_session)):
     documentObj = session.query(Document).filter_by(file_path="pdfs/fist.pdf").first() # temp. Todo: fetch document from selected document from a list when creating new campaign 
-    campaign_id = get_campaign(documentObj.id)
+    campaign_id = campaign.create_new_campaign(body,documentObj.id)
     return {"id":  campaign_id}
 
 @protected_router.get("/campaigns")
-async def get_campaigns_list(session: Session = Depends(get_db_session)):
-    return get_campaigns_list()
+async def get_campaigns_list():
+    return campaign.get_campaigns()
 
 
 # List rulebooks when creating new campaign
