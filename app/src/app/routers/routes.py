@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.controllers.user import UserController
 from app.db.db import Document
 import app.controllers.campaign as campaign
+import app.controllers.sessions as sessions
 from app.middleware.auth import get_current_user
 
 router = APIRouter()
@@ -39,10 +40,15 @@ async def get_campaign(body: Dict,session: Session = Depends(get_db_session)):
     campaign_id = campaign.create_new_campaign(body,documentObj.id)
     return {"id":  campaign_id}
 
+# todo: get campaign by user id
 @protected_router.get("/campaigns")
 async def get_campaigns_list():
     return campaign.get_campaigns()
 
+
+@protected_router.get("/campaigns/{id}/sessions")
+async def get_sessions_list(id):
+    return sessions.get_sessions(id)
 
 # List rulebooks when creating new campaign
 
