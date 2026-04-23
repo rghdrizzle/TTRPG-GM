@@ -16,30 +16,17 @@
     session_number: number
   }
 
-  interface Campaign {
-    id: string
-    name: string
-    rulebook: string
-    description?: string
-    max_players: number
-    created_at: string
-    player_count?: number
-  }
-
   // ── State ─────────────────────────────────────────────────
-  let campaign     = $state<Campaign | null>(null)
-  let sessions     = $state<Session[]>([])
-  let loading      = $state(true)
-  let sessionId    = $state("")
-  let now          = $state("")
-  let hoveredRow   = $state<string | null>(null)
-  let creating     = $state(false)
+  let sessions       = $state<Session[]>([])
+  let loading        = $state(true)
+  let sessionId      = $state("")
+  let hoveredRow     = $state<string | null>(null)
+  let creating       = $state(false)
   let newSessionName = $state("")
-  let showNewForm  = $state(false)
-  let createError  = $state("")
-  let scanline     = $state(0)
+  let showNewForm    = $state(false)
+  let createError    = $state("")
+  let scanline       = $state(0)
 
-  // Status config
   const STATUS_META: Record<SessionStatus, { label: string; dot: string; text: string }> = {
     ACTIVE:    { label: "ACTIVE",    dot: "bg-white/80", text: "text-white/80" },
     COMPLETED: { label: "COMPLETED", dot: "bg-white/25", text: "text-white/30" },
@@ -49,11 +36,7 @@
   onMount(async () => {
     requireAuth?.()
     sessionId = Math.random().toString(36).substring(2, 10).toUpperCase()
-    now = new Date().toLocaleString("en-GB", { hour12: false }).replace(",", "")
-
-    // Scanline ticker
     setInterval(() => { scanline = (scanline + 1) % 100 }, 80)
-
     await loadData()
   })
 
@@ -62,17 +45,18 @@
     const id = $page.params.id
     const headers = { Authorization: `Bearer ${getToken()}` }
     try {
-      const [cRes, sRes] = await Promise.all([
-        fetch(`${import.meta.env.VITE_API_URL}/campaigns/${id}`, { headers }),
-        fetch(`${import.meta.env.VITE_API_URL}/campaigns/${id}/sessions`, { headers }),
-      ])
-      if (!cRes.ok) throw new Error(`Campaign fetch failed: ${cRes.status}`)
+      const sRes = await fetch(`${import.meta.env.VITE_API_URL}/campaigns/${id}/sessions`, { headers })
       if (!sRes.ok) throw new Error(`Sessions fetch failed: ${sRes.status}`)
-      campaign = await cRes.json()
-      sessions = await sRes.json()
+      const sData = await sRes.json()
+      sessions = (sData?.payload?.sessions ?? []).map((s: any, i: number) => ({
+        ...s,
+        status:         s.status         ?? "COMPLETED",
+        created_at:     s.created_at     ?? new Date().toISOString(),
+        session_number: s.session_number ?? i + 1,
+        summary:        s.summary        ?? null,
+      }))
     } catch (err) {
       console.error(err)
-      // Optional: surface error to UI here
     } finally {
       loading = false
     }
@@ -84,7 +68,7 @@
     createError = ""
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/campaigns/${$page.params.id}/sessions`,
+        `${import.meta.env.VITE_API_URL}/campaigns/${$page.params.id}/sessions/new`,
         {
           method: "POST",
           headers: {
@@ -95,10 +79,9 @@
         }
       )
       if (!res.ok) throw new Error(`Create session failed: ${res.status}`)
-      const newSes: Session = await res.json()
-      sessions = [...sessions, newSes]
       newSessionName = ""
       showNewForm = false
+      await loadData()
     } catch (err) {
       console.error(err)
       createError = "TRANSMISSION FAILED — CHECK CONNECTION"
@@ -108,11 +91,14 @@
   }
 
   function enterSession(ses: Session) {
-    goto(`/campaigns/${campaign?.id}/sessions/${ses.id}`)
+    goto(`/campaigns/${$page.params.id}/sessions/${ses.id}`)
   }
 
   function formatDate(iso: string) {
-    return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })
+    return new Date(iso).toLocaleString("en-GB", {
+      day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    })
   }
 </script>
 
@@ -141,18 +127,15 @@
   .rule-h { border-top: 1px solid rgba(255,255,255,0.1); }
   .rule-v { border-left: 1px solid rgba(255,255,255,0.15); }
 
-  /* Pulse */
   @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.35; } }
   .pulse { animation: pulse 2s ease-in-out infinite; }
 
-  /* Fade-in for rows */
   @keyframes fadeSlide {
     from { opacity:0; transform: translateX(-8px); }
     to   { opacity:1; transform: translateX(0); }
   }
   .row-in { animation: fadeSlide 0.25s ease forwards; }
 
-  /* Session row */
   .session-row {
     border: 1px solid rgba(255,255,255,0.07);
     cursor: pointer;
@@ -162,14 +145,9 @@
     border-color: rgba(255,255,255,0.3);
     background: rgba(255,255,255,0.03);
   }
-  .session-row.active-session {
-    border-color: rgba(255,255,255,0.25);
-  }
-  .session-row.scheduled {
-    opacity: 0.5;
-  }
+  .session-row.active-session { border-color: rgba(255,255,255,0.25); }
+  .session-row.scheduled { opacity: 0.5; }
 
-  /* Field input */
   .field-input {
     background: transparent;
     border: none;
@@ -189,7 +167,6 @@
   .field-wrap:focus-within { border-color: rgba(255,255,255,0.35); }
   .field-wrap.has-error    { border-color: rgba(255,80,80,0.5); }
 
-  /* Scan anim on hover row */
   .session-row::after {
     content: '';
     position: absolute;
@@ -201,7 +178,6 @@
   }
   .session-row:hover::after { transform: translateX(100%); }
 
-  /* Loading shimmer */
   @keyframes shimmer {
     0%   { background-position: -400px 0; }
     100% { background-position: 400px 0; }
@@ -218,18 +194,9 @@
     transition: border-color 0.15s, color 0.15s, background 0.15s;
     cursor: pointer;
   }
-  .action-btn:hover {
-    border-color: rgba(255,255,255,0.7);
-    color: #fff;
-  }
-  .action-btn.primary {
-    border-color: rgba(255,255,255,0.5);
-    color: rgba(255,255,255,0.85);
-  }
-  .action-btn.primary:hover {
-    background: #fff;
-    color: #000;
-  }
+  .action-btn:hover { border-color: rgba(255,255,255,0.7); color: #fff; }
+  .action-btn.primary { border-color: rgba(255,255,255,0.5); color: rgba(255,255,255,0.85); }
+  .action-btn.primary:hover { background: #fff; color: #000; }
 </style>
 
 <div class="min-h-screen bg-black text-white scanline relative overflow-hidden mono">
@@ -243,7 +210,6 @@
 
   <!-- ═══ CHROME ═══ -->
   <div class="fixed top-0 left-0 right-0 z-50">
-    <!-- Tab bar -->
     <div class="bg-[#0a0a0a] border-b border-white/10 px-4 h-9 flex items-center gap-4">
       <div class="flex gap-1.5">
         <div class="w-2.5 h-2.5 rounded-full bg-white/20"></div>
@@ -251,7 +217,7 @@
         <div class="w-2.5 h-2.5 rounded-full bg-white/20"></div>
       </div>
       <div class="flex-1 bg-black/60 border border-white/10 h-5 flex items-center px-3 max-w-sm">
-        <span class="text-white/40 text-xs">HTTPS://TTRPG.GM.SYSTEM/CAMPAIGNS/{campaign?.id ?? '...'}</span>
+        <span class="text-white/40 text-xs">HTTPS://TTRPG.GM.SYSTEM/CAMPAIGNS/{$page.params.id}</span>
       </div>
       <div class="ml-auto flex gap-3">
         <span class="text-white/20 text-xs">□</span>
@@ -260,7 +226,6 @@
       </div>
     </div>
 
-    <!-- Nav bar -->
     <div class="bg-black/95 border-b border-white/10 h-10 flex items-center px-6">
       <div class="flex items-center gap-8 flex-1">
         <span class="display text-xl tracking-wider text-white">/CAMPAIGNS</span>
@@ -277,7 +242,6 @@
       </div>
     </div>
 
-    <!-- Tick ruler -->
     <div class="bg-black border-b border-white/10 h-4 flex items-end px-6 overflow-hidden">
       {#each Array(40) as _, i}
         <div class="flex-1 flex items-end justify-center">
@@ -294,14 +258,11 @@
     <div class="border-b border-white/10 px-12 py-3 flex items-center gap-3">
       <a href="/dashboard" class="text-white/20 text-xs tracking-widest hover:text-white/50 transition-colors">CAMPAIGNS</a>
       <span class="text-white/10 text-xs">/</span>
-      <span class="text-white/50 text-xs tracking-widest">
-        {#if loading}···{:else}{campaign?.name?.toUpperCase()}{/if}
-      </span>
+      <span class="text-white/50 text-xs tracking-widest">{$page.params.id.toUpperCase()}</span>
       <span class="text-white/10 text-xs">/</span>
       <span class="text-white/25 text-xs tracking-widest">SESSIONS</span>
-
       <div class="ml-auto flex items-center gap-4">
-        {#if !loading && campaign}
+        {#if !loading}
           <span class="text-white/15 text-xs">
             {sessions.filter(s => s.status === 'COMPLETED').length} COMPLETED
             &nbsp;·&nbsp;
@@ -318,53 +279,27 @@
       <!-- ── Main ── -->
       <div class="flex-1 px-12 py-8 space-y-8 min-w-0">
 
-        <!-- ── Campaign Header ── -->
-        {#if loading}
-          <!-- skeleton -->
-          <div class="space-y-3">
-            <div class="shimmer h-3 w-32 rounded-none"></div>
-            <div class="shimmer h-12 w-80 rounded-none"></div>
+        <!-- ── Header ── -->
+        <div class="flex items-start justify-between gap-8">
+          <div>
+            <div class="text-white/20 text-xs tracking-widest mb-1">CAMPAIGN_NODE // {$page.params.id}</div>
+            <div class="display text-6xl text-white tracking-wider leading-none">SESSIONS 會話</div>
           </div>
-        {:else if campaign}
-          <div class="flex items-start justify-between gap-8">
-            <div>
-              <div class="text-white/20 text-xs tracking-widest mb-1">CAMPAIGN_NODE // {campaign.id}</div>
-              <div class="display text-6xl text-white tracking-wider leading-none">{campaign.name.toUpperCase()}</div>
-              <div class="flex items-center gap-5 mt-3">
-                <span class="text-white/30 text-xs">SYS: {campaign.rulebook}</span>
-                <div class="rule-v h-3"></div>
-                <span class="text-white/30 text-xs">SLOTS: {campaign.player_count ?? 0}/{campaign.max_players}</span>
-                <div class="rule-v h-3"></div>
-                <span class="text-white/30 text-xs">CREATED: {formatDate(campaign.created_at)}</span>
-              </div>
-            </div>
-            <!-- Enter active session shortcut -->
-            {#if sessions.some(s => s.status === 'ACTIVE')}
-              <button
-                onclick={() => { const a = sessions.find(s => s.status === 'ACTIVE'); if(a) enterSession(a) }}
-                class="action-btn primary shrink-0 px-5 py-3 flex items-center gap-3 text-sm tracking-widest"
-              >
-                <span class="pulse">●</span> RESUME ACTIVE SESSION →
-              </button>
-            {/if}
-          </div>
-
-          <!-- Description strip -->
-          {#if campaign.description}
-            <div class="border border-white/08 bg-white/[0.015] px-5 py-4 flex gap-4 items-start">
-              <span class="text-white/15 text-xs shrink-0 mt-0.5">LORE</span>
-              <div class="rule-v h-4 mt-0.5 shrink-0"></div>
-              <p class="text-white/35 text-xs leading-relaxed">{campaign.description}</p>
-            </div>
+          {#if !loading && sessions.some(s => s.status === 'ACTIVE')}
+            <button
+              onclick={() => { const a = sessions.find(s => s.status === 'ACTIVE'); if(a) enterSession(a) }}
+              class="action-btn primary shrink-0 px-5 py-3 flex items-center gap-3 text-sm tracking-widest"
+            >
+              <span class="pulse">●</span> RESUME ACTIVE SESSION →
+            </button>
           {/if}
-        {/if}
+        </div>
 
         <!-- ── Sessions Table ── -->
         <div>
-          <!-- Table header -->
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-4">
-              <span class="display text-2xl tracking-wider text-white">SESSIONS 會話</span>
+              <span class="display text-2xl tracking-wider text-white">ALL SESSIONS</span>
               <span class="text-white/20 text-xs border border-white/10 px-2 py-0.5">{sessions.length} TOTAL</span>
             </div>
             <button
@@ -375,7 +310,7 @@
             </button>
           </div>
 
-          <!-- New session form (inline) -->
+          <!-- New session form -->
           {#if showNewForm}
             <div class="border border-white/20 bg-white/[0.02] mb-4 p-5 space-y-4 row-in">
               <div class="text-white/20 text-xs tracking-widest">INITIALIZE SESSION NODE</div>
@@ -446,10 +381,8 @@
                   tabindex="0"
                   onkeydown={(e) => e.key === 'Enter' && enterSession(ses)}
                 >
-                  <!-- Number -->
                   <span class="text-white/20 text-xs">{String(ses.session_number).padStart(2,'0')}</span>
 
-                  <!-- Name + summary -->
                   <div class="min-w-0">
                     <div class="flex items-center gap-2">
                       {#if ses.status === 'ACTIVE'}
@@ -466,19 +399,14 @@
                     {/if}
                   </div>
 
-                  <!-- Status badge -->
                   <div class="flex items-center gap-2">
-                    <div class="w-1.5 h-1.5 rounded-full {meta.dot}
-                      {ses.status === 'ACTIVE' ? 'pulse' : ''}"></div>
+                    <div class="w-1.5 h-1.5 rounded-full {meta.dot} {ses.status === 'ACTIVE' ? 'pulse' : ''}"></div>
                     <span class="text-xs {meta.text} tracking-widest">{meta.label}</span>
                   </div>
 
-                  <!-- Date -->
                   <span class="text-white/20 text-xs">{formatDate(ses.created_at)}</span>
 
-                  <!-- Arrow -->
-                  <span class="text-white/20 text-xs transition-all
-                    {hoveredRow === ses.id ? 'text-white/60' : ''}">→</span>
+                  <span class="text-xs transition-all {hoveredRow === ses.id ? 'text-white/60' : 'text-white/20'}">→</span>
                 </div>
               {/each}
             </div>
@@ -490,21 +418,19 @@
       <!-- ── Right sidebar ── -->
       <div class="w-64 border-l border-white/10 flex flex-col shrink-0 p-5 space-y-6">
 
-        <!-- Campaign quick stats -->
         <div>
-          <div class="text-white/20 text-xs tracking-widest mb-3">CAMPAIGN STATS</div>
+          <div class="text-white/20 text-xs tracking-widest mb-3">SESSION STATS</div>
           {#if loading}
             {#each Array(4) as _}
               <div class="shimmer h-8 mb-2"></div>
             {/each}
-          {:else if campaign}
+          {:else}
             <div class="space-y-1">
               {#each [
-                { label: "TOTAL SESSIONS",   val: String(sessions.length) },
-                { label: "COMPLETED",         val: String(sessions.filter(s=>s.status==='COMPLETED').length) },
-                { label: "ACTIVE",            val: String(sessions.filter(s=>s.status==='ACTIVE').length) },
-                { label: "SCHEDULED",         val: String(sessions.filter(s=>s.status==='SCHEDULED').length) },
-                { label: "PLAYERS",           val: `${campaign.player_count ?? 0} / ${campaign.max_players}` },
+                { label: "TOTAL",     val: String(sessions.length) },
+                { label: "COMPLETED", val: String(sessions.filter(s=>s.status==='COMPLETED').length) },
+                { label: "ACTIVE",    val: String(sessions.filter(s=>s.status==='ACTIVE').length) },
+                { label: "SCHEDULED", val: String(sessions.filter(s=>s.status==='SCHEDULED').length) },
               ] as row}
                 <div class="flex items-center gap-2 py-1.5 border-b border-white/05">
                   <span class="text-white/20 text-xs flex-1">{row.label}</span>
@@ -515,16 +441,15 @@
           {/if}
         </div>
 
-        <!-- System status -->
         <div class="rule-h pt-4">
           <div class="text-white/20 text-xs tracking-widest mb-3">SYSTEM STATUS</div>
           <div class="space-y-2">
             {#each [
-              { label: "GM ENGINE",    ok: true },
-              { label: "RAG CONTEXT",  ok: true },
-              { label: "SESSION MEM",  ok: true },
-              { label: "DICE ENGINE",  ok: true },
-              { label: "VECTOR DB",    ok: !loading },
+              { label: "GM ENGINE",   ok: true },
+              { label: "RAG CONTEXT", ok: true },
+              { label: "SESSION MEM", ok: true },
+              { label: "DICE ENGINE", ok: true },
+              { label: "VECTOR DB",   ok: !loading },
             ] as item}
               <div class="flex items-center gap-2">
                 <div class="w-1.5 h-1.5 rounded-full {item.ok ? 'bg-white/60' : 'bg-white/15 pulse'}"></div>
@@ -537,26 +462,25 @@
           </div>
         </div>
 
-        <!-- Actions -->
         <div class="rule-h pt-4">
           <div class="text-white/20 text-xs tracking-widest mb-3">ACTIONS 動作</div>
           <div class="space-y-2">
             <button
-              onclick={() => goto('/campaigns')}
+              onclick={() => goto('/dashboard')}
               class="action-btn w-full px-3 py-2.5 text-left text-xs tracking-widest flex items-center justify-between"
             >
               <span>ALL CAMPAIGNS</span>
               <span class="opacity-40">⌂</span>
             </button>
             <button
-              onclick={() => goto(`/campaigns/${campaign?.id}/settings`)}
+              onclick={() => goto(`/campaigns/${$page.params.id}/settings`)}
               class="action-btn w-full px-3 py-2.5 text-left text-xs tracking-widest flex items-center justify-between"
             >
               <span>CAMPAIGN SETTINGS</span>
               <span class="opacity-40">⚙</span>
             </button>
             <button
-              onclick={() => goto(`/campaigns/${campaign?.id}/players`)}
+              onclick={() => goto(`/campaigns/${$page.params.id}/players`)}
               class="action-btn w-full px-3 py-2.5 text-left text-xs tracking-widest flex items-center justify-between"
             >
               <span>MANAGE PLAYERS</span>
@@ -565,7 +489,6 @@
           </div>
         </div>
 
-        <!-- Atmospheric barcode -->
         <div class="rule-h pt-4 mt-auto">
           <div class="flex gap-px h-12">
             {#each Array(32) as _, i}
@@ -590,7 +513,7 @@
     <div class="h-8 px-6 flex items-center gap-8">
       <span class="mono text-xs text-white/20">NODE [{sessionId}]</span>
       <div class="rule-v h-4"></div>
-      <span class="mono text-xs text-white/20">/CAMPAIGNS/{campaign?.id ?? '...'}/SESSIONS</span>
+      <span class="mono text-xs text-white/20">/CAMPAIGNS/{$page.params.id}/SESSIONS</span>
       <div class="rule-v h-4"></div>
       <span class="mono text-xs text-white/20 blink">● SESSION MGR</span>
       <div class="ml-auto mono text-xs text-white/20">TTRPG INDUSTRIAL // COPYRIGHT © 2077</div>

@@ -18,11 +18,12 @@ def create_new_session(session_info,campaign_id):
 
 
 def get_sessions(id):
-    sessions = dbSession.query(db.Sessions.id, db.Sessions.name,db.Sessions.campaign_id).filter_by(campaign_id=id).all()
+    sessions = dbSession.query(db.Sessions.id, db.Sessions.name,db.Sessions.campaign_id,db.Sessions.created_at).filter_by(campaign_id=id).all()
     sessions = [
         {
             "id": str(c.id),
-            "name": c.name
+            "name": c.name,
+            "created_at": c.created_at
         }
         for c in sessions
     ]

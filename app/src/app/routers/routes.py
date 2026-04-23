@@ -7,7 +7,9 @@ from app.db.db import Document
 import app.controllers.campaign as campaign
 import app.controllers.sessions as sessions
 from app.middleware.auth import get_current_user
-
+from sse_starlette.sse import EventSourceResponse 
+from fastapi import Request 
+import asyncio
 router = APIRouter()
 
 protected_router = APIRouter(
@@ -29,6 +31,15 @@ async def signup(body: Dict,db: Session = Depends(get_db_session)):
 async def read_users():
     return {"health":"ok"}
 
+@router.get("/stream")
+async def stream(request: Request): 
+    async def token_generator(): 
+        for word in ["Hello", "there,", "this", "is", "streamed."]: 
+            yield f"data: {word}\n\n" 
+            await asyncio.sleep(0.5) 
+
+    return EventSourceResponse(token_generator())
+
 
 @protected_router.get("/test-auth",status_code=200)
 async def test():
@@ -49,6 +60,10 @@ async def get_campaigns_list():
 @protected_router.get("/campaigns/{id}/sessions")
 async def get_sessions_list(id):
     return sessions.get_sessions(id)
+
+@protected_router.post("/campaigns/{id}/sessions/new")
+async def get_sessions_list(body: Dict,id):
+    return sessions.create_new_session(body,id)
 
 # List rulebooks when creating new campaign
 
