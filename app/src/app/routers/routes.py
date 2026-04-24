@@ -9,7 +9,7 @@ import app.controllers.sessions as sessions
 from app.middleware.auth import get_current_user
 from sse_starlette.sse import EventSourceResponse 
 from fastapi import Request 
-import asyncio
+from app.services import rag, gm
 router = APIRouter()
 
 protected_router = APIRouter(
@@ -32,11 +32,18 @@ async def read_users():
     return {"health":"ok"}
 
 @router.get("/stream")
-async def stream(request: Request): 
+async def stream(body: Dict, request: Request): 
     async def token_generator(): 
-        for word in ["Hello", "there,", "this", "is", "streamed."]: 
-            yield f"data: {word}\n\n" 
-            await asyncio.sleep(0.5) 
+        response = ""
+        query = body["query"]
+        context = rag.get_context_from_query(query)
+        async for token in gm.stream_gm_response(context,query)
+            if await request.is_disconnected():
+                break
+            response += token
+            yield {"data": token}
+
+        yield {"data":"[DONE]"}
 
     return EventSourceResponse(token_generator())
 

@@ -7,7 +7,7 @@ from sse_starlette.sse import EventSourceResponse
 
 
 async def event_generator(): 
-        response = await ser .ChatCompletion.acreate( 
+        response = await ser.ChatCompletion.acreate( 
             model="gpt-4", 
             messages=[{"role": "user", "content": prompt}], 
             stream=True, 
