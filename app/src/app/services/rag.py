@@ -12,6 +12,12 @@ import time
 
 session = db.get_db_session()
 
+def get_embedding(query):
+    embedding = OllamaEmbeddings(model="nomic-embed-text")
+
+    embedQuery = embedding.embed_query(query)
+    return embedQuery
+
 def get_context_from_query(query_embedding, limit=5):
     k = 5
     similarity_threshold = 0.7
@@ -19,4 +25,4 @@ def get_context_from_query(query_embedding, limit=5):
     data = "\n\n".join([
     chunk.content for chunk, _ in query
     ])
-    return query
+    return data

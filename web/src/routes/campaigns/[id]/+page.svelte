@@ -91,7 +91,7 @@
   }
 
   function enterSession(ses: Session) {
-    goto(`/campaigns/${$page.params.id}/sessions/${ses.id}`)
+    goto(`/campaigns/${$page.params.id}/session/${ses.id}`)
   }
 
   function formatDate(iso: string) {

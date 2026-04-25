@@ -31,21 +31,6 @@ async def signup(body: Dict,db: Session = Depends(get_db_session)):
 async def read_users():
     return {"health":"ok"}
 
-@router.get("/stream")
-async def stream(body: Dict, request: Request): 
-    async def token_generator(): 
-        response = ""
-        query = body["query"]
-        context = rag.get_context_from_query(query)
-        async for token in gm.stream_gm_response(context,query)
-            if await request.is_disconnected():
-                break
-            response += token
-            yield {"data": token}
-
-        yield {"data":"[DONE]"}
-
-    return EventSourceResponse(token_generator())
 
 
 @protected_router.get("/test-auth",status_code=200)
@@ -74,4 +59,20 @@ async def get_sessions_list(body: Dict,id):
 
 # List rulebooks when creating new campaign
 
-# chat endpoint with campaign id
+# chat endpoint with session id
+@router.post("/{session_id}/chat")
+async def stream(body: Dict, request: Request): 
+    async def token_generator(): 
+        response = ""
+        query = body["query"]
+        embedded_query = rag.get_embedding(query)
+        context = rag.get_context_from_query(embedded_query)
+        async for token in gm.stream_gm_response(context,query):
+            if await request.is_disconnected():
+                break
+            response += token
+            yield {"data": token}
+
+        yield {"data":"[DONE]"}
+
+    return EventSourceResponse(token_generator())
