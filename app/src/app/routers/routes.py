@@ -6,6 +6,7 @@ from app.controllers.user import UserController
 from app.db.db import Document
 import app.controllers.campaign as campaign
 import app.controllers.sessions as sessions
+import app.controllers.turn as turns
 from app.middleware.auth import get_current_user
 from sse_starlette.sse import EventSourceResponse 
 from fastapi import Request 
@@ -62,7 +63,7 @@ async def get_sessions_list(body: Dict,id):
 # chat endpoint with session id
 @router.post("/{session_id}/chat")
 async def stream(body: Dict, request: Request): 
-    async def token_generator(): 
+    async def token_generator(session_id): 
         response = ""
         query = body["query"]
         embedded_query = rag.get_embedding(query)
@@ -74,5 +75,5 @@ async def stream(body: Dict, request: Request):
             yield {"data": token}
 
         yield {"data":"[DONE]"}
-
+        turns.add_turn(query,response,session_id)
     return EventSourceResponse(token_generator())
