@@ -61,14 +61,15 @@ async def get_sessions_list(body: Dict,id):
 # List rulebooks when creating new campaign
 
 # chat endpoint with session id
-@router.post("/{session_id}/chat")
+@protected_router.post("/{session_id}/chat")
 async def stream(body: Dict, request: Request): 
     async def token_generator(session_id): 
         response = ""
         query = body["query"]
         embedded_query = rag.get_embedding(query)
         context = rag.get_context_from_query(embedded_query)
-        async for token in gm.stream_gm_response(context,query):
+        turnsHistory = turns.get_turns(session_id)
+        async for token in gm.stream_gm_response(context,query,turnsHistory):
             if await request.is_disconnected():
                 break
             response += token
@@ -77,3 +78,4 @@ async def stream(body: Dict, request: Request):
         yield {"data":"[DONE]"}
         turns.add_turn(query,response,session_id)
     return EventSourceResponse(token_generator())
+

@@ -12,11 +12,11 @@ import time
 
 session = db.get_db_session()
 
-async def stream_gm_response(rag_context_from_query,query: str):
+async def stream_gm_response(rag_context_from_query,query: str,history=""):
     output = ollama.generate(
         model="llama3.2",
         stream=True,
-        prompt=build_prompt(rag_context_from_query,query,"")
+        prompt=build_prompt(rag_context_from_query,query,history)
     )
 
     for chunk in output:
