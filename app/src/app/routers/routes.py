@@ -62,7 +62,7 @@ async def get_sessions_list(body: Dict,id):
 
 # chat endpoint with session id
 @protected_router.post("/{session_id}/chat")
-async def stream(body: Dict, request: Request): 
+async def stream(body: Dict, request: Request,session_id): 
     async def token_generator(session_id): 
         response = ""
         query = body["query"]
@@ -77,5 +77,10 @@ async def stream(body: Dict, request: Request):
 
         yield {"data":"[DONE]"}
         turns.add_turn(query,response,session_id)
-    return EventSourceResponse(token_generator())
+    return EventSourceResponse(token_generator(session_id))
+
+
+@protected_router.get("/{session_id}/chat/history")
+async def get_history(session_id):
+    return turns.get_turns(session_id)
 

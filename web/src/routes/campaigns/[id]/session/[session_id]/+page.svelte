@@ -7,21 +7,67 @@
   let messages   = $state<{ role: "user" | "gm" | "system"; content: string; ts: string }[]>([])
   let input      = $state("")
   let streaming  = $state(false)
-  let loading    = $state(false)
+  let loading    = $state(true)   // true while history is loading
   let now        = $state("")
   let nodeId     = $state("")
   let chatEl     = $state<HTMLElement | null>(null)
   let inputEl    = $state<HTMLTextAreaElement | null>(null)
 
-  // session_id comes from the URL: /sessions/[session_id]
   const sessionId = $page.params.session_id
 
   // ── Lifecycle ──────────────────────────────────────────
-  onMount(() => {
+  onMount(async () => {
     requireAuth()
     now    = new Date().toLocaleString("en-GB", { hour12: false }).replace(",", "")
     nodeId = Math.random().toString(36).substring(2, 10).toUpperCase()
+    await loadHistory()   // load past turns on mount
   })
+
+  // ── Load history ───────────────────────────────────────
+  async function loadHistory() {
+    loading = true
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/${sessionId}/chat/history`,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      )
+
+      if (!res.ok) {
+        loading = false
+        return
+      }
+
+      const data = await res.json()
+      // response shape: { status, message, payload: { turns: [...] } }
+      const turns = data?.payload?.turns ?? []
+
+      // each turn has player_msg + gm_response — expand into two messages
+      const expanded: typeof messages = []
+      for (const turn of turns) {
+        if (turn.player_msg) {
+          expanded.push({
+            role: "user",
+            content: turn.player_msg,
+            ts: turn.created_at ?? new Date().toISOString(),
+          })
+        }
+        if (turn.gm_response) {
+          expanded.push({
+            role: "gm",
+            content: turn.gm_response,
+            ts: turn.created_at ?? new Date().toISOString(),
+          })
+        }
+      }
+
+      messages = expanded
+    } catch (err) {
+      console.error("Failed to load history:", err)
+    } finally {
+      loading = false
+      await scrollToBottom()
+    }
+  }
 
   // ── Helpers ────────────────────────────────────────────
   async function scrollToBottom() {
@@ -29,9 +75,7 @@
     chatEl?.scrollTo({ top: chatEl.scrollHeight, behavior: "smooth" })
   }
 
-  function ts() {
-    return new Date().toISOString()
-  }
+  function ts() { return new Date().toISOString() }
 
   function formatTime(iso: string) {
     return new Date(iso).toLocaleTimeString("en-GB", {
@@ -44,21 +88,17 @@
     const text = input.trim()
     if (!text || streaming) return
 
-    input = ""
+    input     = ""
     streaming = true
 
-    // 1 — add player message to chat
     messages = [...messages, { role: "user", content: text, ts: ts() }]
     await scrollToBottom()
 
-    // 2 — add empty GM message we will fill token by token
     messages = [...messages, { role: "gm", content: "", ts: ts() }]
     const gmIndex = messages.length - 1
     await scrollToBottom()
 
     try {
-      // 3 — POST to backend, read SSE stream
-      // body key must be "query" — matches body["query"] in the FastAPI endpoint
       const res = await fetch(
         `${import.meta.env.VITE_API_URL}/${sessionId}/chat`,
         {
@@ -77,7 +117,6 @@
         return
       }
 
-      // 4 — read the stream token by token
       const reader  = res.body.getReader()
       const decoder = new TextDecoder()
 
@@ -90,11 +129,10 @@
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue
-          const token = line.slice(6)          // strip "data: " prefix
+          const token = line.slice(6)
           if (token === "[DONE]") break
           if (!token) continue
 
-          // append token to the last GM message
           messages[gmIndex] = {
             ...messages[gmIndex],
             content: messages[gmIndex].content + token,
@@ -104,7 +142,10 @@
       }
 
     } catch {
-      messages[gmIndex].content = "// CONNECTION LOST — RETRY"
+      messages[gmIndex] = {
+        ...messages[gmIndex],
+        content: "// CONNECTION LOST — RETRY",
+      }
     }
 
     streaming = false
@@ -141,7 +182,6 @@
   .rule-h { border-top: 1px solid rgba(255,255,255,0.12); }
   .rule-v { border-left: 1px solid rgba(255,255,255,0.12); }
 
-  /* thin custom scrollbar */
   .scroll::-webkit-scrollbar       { width: 2px; }
   .scroll::-webkit-scrollbar-track { background: transparent; }
   .scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
@@ -149,18 +189,19 @@
   textarea          { resize: none; }
   textarea:focus    { outline: none; }
 
-  /* message variants */
   .msg-gm     { border-left: 2px solid rgba(255,255,255,0.55); }
   .msg-user   { border-left: 2px solid rgba(255,255,255,0.18); }
   .msg-system { border-left: 2px solid rgba(255,255,255,0.06); }
 
-  /* streaming cursor */
   .stream-cursor::after {
     content: "█";
     animation: blink 0.8s step-end infinite;
     color: rgba(255,255,255,0.4);
     margin-left: 2px;
   }
+
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+  .pulse { animation: pulse 2s ease-in-out infinite; }
 </style>
 
 <div class="min-h-screen bg-black text-white scanline mono overflow-hidden">
@@ -175,7 +216,6 @@
   <!-- ═══ TOP CHROME ═══ -->
   <div class="fixed top-0 left-0 right-0 z-50">
 
-    <!-- URL bar -->
     <div class="bg-[#0a0a0a] border-b border-white/10 px-4 h-9 flex items-center gap-4">
       <div class="flex gap-1.5">
         <div class="w-2.5 h-2.5 rounded-full bg-white/20"></div>
@@ -192,7 +232,6 @@
       </div>
     </div>
 
-    <!-- Nav -->
     <div class="bg-black/95 border-b border-white/10 h-10 flex items-center px-6">
       <div class="flex items-center gap-8 flex-1">
         <span class="display text-xl tracking-wider">/SESSION</span>
@@ -201,7 +240,7 @@
         <a href="/rulebooks" class="text-xs text-white/30 tracking-widest hover:text-white/55 transition-colors">RULEBOOKS 規則</a>
       </div>
       <div class="flex items-center gap-5">
-        <span class="text-xs text-white/30">NODE [{nodeId}]</span>
+        <span class="text-xs text-white/25">NODE [{nodeId}]</span>
         <span class="text-xs text-white blink">● LIVE</span>
         <a href="/dashboard"
           class="text-xs text-white/30 tracking-widest hover:text-white transition-colors border border-white/10 hover:border-white/35 px-3 py-1">
@@ -210,7 +249,6 @@
       </div>
     </div>
 
-    <!-- Ruler -->
     <div class="bg-black border-b border-white/10 h-4 flex items-end px-6 overflow-hidden">
       {#each Array(40) as _, i}
         <div class="flex-1 flex items-end justify-center">
@@ -221,20 +259,17 @@
   </div>
 
   <!-- ═══ BODY ═══ -->
-  <!-- fixed between chrome (88px) and footer (56px) -->
   <div class="fixed left-0 right-0 flex" style="top:88px; bottom:56px;">
 
     <!-- ── LEFT SIDEBAR ── -->
     <div class="w-52 border-r border-white/10 flex flex-col shrink-0">
 
-      <!-- Session ID block -->
       <div class="p-4 border-b border-white/10">
         <div class="text-white/20 text-xs tracking-widest mb-2">SESSION_NODE</div>
         <div class="display text-xl text-white leading-tight break-all">{sessionId}</div>
         <div class="text-white/20 text-xs mt-2">{now.split(" ")[0]}</div>
       </div>
 
-      <!-- GM node -->
       <div class="p-4 border-b border-white/10">
         <div class="text-white/20 text-xs tracking-widest mb-3">PARTICIPANTS 參與者</div>
         <div class="flex items-center gap-3">
@@ -245,13 +280,10 @@
             <div class="text-white text-xs">GAME MASTER</div>
             <div class="text-white/30 text-xs">AI // LOCAL LLM</div>
           </div>
-          <div class="ml-auto w-1.5 h-1.5 rounded-full bg-white/60"
-            style="animation: pulse 2s ease-in-out infinite;"
-          ></div>
+          <div class="ml-auto w-1.5 h-1.5 rounded-full bg-white/60 pulse"></div>
         </div>
       </div>
 
-      <!-- Stats -->
       <div class="p-4 flex-1">
         <div class="text-white/20 text-xs tracking-widest mb-3">STATS 統計</div>
         <div class="space-y-2 text-xs">
@@ -265,8 +297,8 @@
           </div>
           <div class="flex justify-between border-b border-white/8 pb-1.5">
             <span class="text-white/25">STATUS</span>
-            <span class="{streaming ? 'blink' : ''} text-white/55">
-              {streaming ? "PROCESSING" : "READY"}
+            <span class="{streaming ? 'blink' : loading ? 'blink' : ''} text-white/55">
+              {streaming ? "PROCESSING" : loading ? "LOADING" : "READY"}
             </span>
           </div>
           <div class="flex justify-between border-b border-white/8 pb-1.5">
@@ -276,7 +308,6 @@
         </div>
       </div>
 
-      <!-- Barcode -->
       <div class="p-4 border-t border-white/10">
         <div class="flex gap-px h-8">
           {#each Array(36) as _, i}
@@ -292,7 +323,6 @@
     <!-- ── CHAT PANEL ── -->
     <div class="flex-1 flex flex-col min-w-0">
 
-      <!-- Chat sub-header -->
       <div class="border-b border-white/10 px-6 h-9 flex items-center justify-between shrink-0">
         <div class="flex items-center gap-4">
           <span class="text-white/20 text-xs tracking-widest">GM TRANSMISSION CHANNEL</span>
@@ -303,12 +333,17 @@
       </div>
 
       <!-- Messages -->
-      <div
-        bind:this={chatEl}
-        class="flex-1 overflow-y-auto scroll px-6 py-4 space-y-0"
-      >
-        {#if messages.length === 0}
-          <!-- Empty state -->
+      <div bind:this={chatEl} class="flex-1 overflow-y-auto scroll px-6 py-4 space-y-0">
+
+        {#if loading}
+          <!-- Loading history state -->
+          <div class="h-full flex flex-col items-center justify-center text-center select-none">
+            <div class="display text-[56px] leading-none text-white/5 mb-3">LOADING<br>MEMORY</div>
+            <div class="text-white/20 text-xs tracking-widest blink">RETRIEVING SESSION HISTORY_</div>
+          </div>
+
+        {:else if messages.length === 0}
+          <!-- Empty state — no history -->
           <div class="h-full flex flex-col items-center justify-center text-center select-none">
             <div class="display text-[56px] leading-none text-white/5 mb-3">AWAITING<br>SIGNAL</div>
             <div class="text-white/20 text-xs tracking-widest mb-1">GAME MASTER IS STANDING BY</div>
@@ -316,6 +351,15 @@
           </div>
 
         {:else}
+          <!-- History separator if messages exist -->
+          {#if messages.length > 0}
+            <div class="flex items-center gap-3 py-3">
+              <div class="h-px flex-1 bg-white/8"></div>
+              <span class="text-white/15 text-xs tracking-widest">SESSION HISTORY</span>
+              <div class="h-px flex-1 bg-white/8"></div>
+            </div>
+          {/if}
+
           {#each messages as msg, i}
             <div class="py-4 {i > 0 ? 'rule-h' : ''}">
 
@@ -359,8 +403,6 @@
       <!-- Input area -->
       <div class="border-t border-white/15 shrink-0">
         <div class="px-6 py-4 flex items-end gap-3">
-
-          <!-- Textarea wrapper -->
           <div class="flex-1 border border-white/10 hover:border-white/20 focus-within:border-white/28 transition-colors bg-white/[0.015]">
             <div class="flex items-center gap-2 px-4 py-1.5 border-b border-white/8">
               <span class="text-white/18 text-xs tracking-widest">INPUT 輸入</span>
@@ -373,16 +415,15 @@
               onkeydown={onKeydown}
               rows="3"
               placeholder="> TRANSMIT TO GAME MASTER..."
-              disabled={streaming}
+              disabled={streaming || loading}
               class="w-full bg-transparent px-4 py-3 text-sm text-white/65
                      placeholder:text-white/12 disabled:opacity-30"
             ></textarea>
           </div>
 
-          <!-- Send button -->
           <button
             onclick={sendMessage}
-            disabled={!input.trim() || streaming}
+            disabled={!input.trim() || streaming || loading}
             class="border border-white/25 hover:border-white hover:bg-white hover:text-black
                    disabled:opacity-20 disabled:cursor-not-allowed
                    transition-all px-5 py-3 text-xs tracking-widest text-white
@@ -390,14 +431,14 @@
           >
             {#if streaming}
               <span class="blink">TX_</span>
+            {:else if loading}
+              <span class="blink">...</span>
             {:else}
               TRANSMIT →
             {/if}
           </button>
-
         </div>
 
-        <!-- Input footer -->
         <div class="px-6 pb-3 flex items-center gap-4">
           <div class="flex gap-px h-2.5">
             {#each Array(28) as _, i}
@@ -424,7 +465,8 @@
           ] as item}
             <div class="flex items-center gap-2">
               <div class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                style="background:rgba(255,255,255,{item.active ? 0.5 : 0.1});"></div>
+                style="background:rgba(255,255,255,{item.active ? 0.5 : 0.1});">
+              </div>
               <span class="text-xs" style="color:rgba(255,255,255,{item.active ? 0.35 : 0.13});">
                 {item.label}
               </span>
@@ -440,10 +482,15 @@
         <div class="text-white/20 text-xs tracking-widest mb-3">SYSTEM LOG</div>
         <div class="space-y-1.5 text-xs text-white/20">
           <div>&gt; SESSION OPEN</div>
-          <div>&gt; RAG LOADED</div>
-          <div>&gt; GM READY</div>
+          {#if loading}
+            <div class="blink">&gt; LOADING HISTORY_</div>
+          {:else}
+            <div>&gt; HISTORY LOADED</div>
+            <div>&gt; RAG LOADED</div>
+            <div>&gt; GM READY</div>
+          {/if}
           {#if messages.length > 0}
-            <div>&gt; {messages.length} MSG LOGGED</div>
+            <div>&gt; {messages.length} MSG RESTORED</div>
           {/if}
           {#if streaming}
             <div class="blink">&gt; STREAMING_</div>
@@ -451,7 +498,6 @@
         </div>
       </div>
 
-      <!-- Mini barcode -->
       <div class="p-4">
         <div class="flex gap-px h-12">
           {#each Array(22) as _, i}
@@ -461,7 +507,6 @@
           {/each}
         </div>
       </div>
-
     </div>
   </div>
 
@@ -481,7 +526,7 @@
           <div class="w-px bg-white" style="opacity:{Math.random() > 0.5 ? 0.25 : 0.07};"></div>
         {/each}
       </div>
-      <span class="mono text-xs text-white/20">SESSION [{nodeId}]</span>
+      <span class="mono text-xs text-white/20">NODE [{nodeId}]</span>
       <div class="rule-v h-4"></div>
       <span class="mono text-xs text-white/20">MSG {messages.length}</span>
       <div class="rule-v h-4"></div>

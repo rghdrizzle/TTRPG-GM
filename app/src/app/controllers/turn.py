@@ -23,7 +23,7 @@ def get_turns(id):
     turns = [
         {
             "id": str(c.id),
-            "player_msg": c.playermsg,
+            "player_msg": c.player_msg,
             "gm_response": c.gm_response,
             "created_at": c.created_at
         }
