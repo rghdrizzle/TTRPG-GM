@@ -108,7 +108,7 @@
   }
 
   function startCampaign() {
-    goto(`/campaigns/${campaign.id}`)
+    goto(`/campaigns/${campaign.id}/character`)
   }
 
   function viewSessions() {

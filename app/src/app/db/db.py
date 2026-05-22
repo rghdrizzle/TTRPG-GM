@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table , ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table , ForeignKey, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -93,6 +93,20 @@ class Entities(BaseModel):
     state          = Column(String)
     created_at = Column(DateTime, default=datetime.now)
 
+class CharacterSheet(BaseModel):
+    __tablename__ = "charactersheet"
+    campaign_id = Column(UUID, ForeignKey("campaigns.id"))
+    user_id     = Column(UUID, ForeignKey("users.id"))
+    name        = Column(String, nullable=False)
+    level       = Column(Integer, default=1)
+    hp          = Column(Integer)
+    max_hp      = Column(Integer)
+    created_at  = Column(DateTime, default=datetime.now)
+    stats       = Column(JSON)   
+    inventory   = Column(JSON)   
+    traits      = Column(JSON)   
+    notes       = Column(String)
+    
 Base.metadata.create_all(engine) # This creates all the tables in the engine
 
 # get db session to perform database queries
