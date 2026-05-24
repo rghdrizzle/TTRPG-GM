@@ -14,7 +14,7 @@ session = db.get_db_session()
 
 async def stream_gm_response(rag_context_from_query,query: str,history=""):
     output = ollama.generate(
-        model="llama3.2",
+        model="llama3.1:8b",
         stream=True,
         prompt=build_prompt(rag_context_from_query,query,history)
     )
@@ -46,7 +46,7 @@ GM:"""
 
 def get_gm_response(rag_context_from_query,query: str):
     output = ollama.generate(
-    model="llama3.2",
+    model="llama3.1:8b",
     prompt = f"""
             You are a Game Master (GM) for a tabletop RPG.
 
