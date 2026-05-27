@@ -9,14 +9,14 @@ import ollama
 import time
 
 
-
 session = db.get_db_session()
 
-async def stream_gm_response(rag_context_from_query,query: str,history=""):
+async def stream_gm_response(intent,rag_context_from_query,query: str,history=""):
+    print("debug:",intent)
     output = ollama.generate(
         model="llama3.1:8b",
         stream=True,
-        prompt=build_prompt(rag_context_from_query,query,history)
+        prompt=Prompt_map[intent](rag_context_from_query,query)
     )
 
     for chunk in output:
@@ -43,6 +43,21 @@ RULES:
 - Be concise. 2-4 sentences per response unless describing a scene.
 
 GM:"""
+
+def rules_question_prompt(rag_context_from_query,query:str)-> str:
+    return f""" 
+            You are a Game Master for a TTRPG game answering a rules question.
+
+            RULEBOOK:
+            {rag_context_from_query}
+
+            QUESTION: {query}
+
+            Answer directly and concisely in plain language.
+            2-3 sentences maximum. No narration, no drama, no scene setting.
+            If the rulebook does not cover it, say so briefly or ask the player to read it themselves.
+            """
+
 
 def get_gm_response(rag_context_from_query,query: str):
     output = ollama.generate(
@@ -81,3 +96,7 @@ def get_gm_response(rag_context_from_query,query: str):
     )
 
     return output['response']
+
+Prompt_map = {
+    "rules_question": rules_question_prompt
+}

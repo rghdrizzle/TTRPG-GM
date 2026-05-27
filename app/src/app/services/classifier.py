@@ -17,12 +17,12 @@ def classify(message: str) -> Intent:
     # todo: use hermes agent calls instead
     response = ollama.generate(
         model="llama3.1:8b",
-        prompt=f"""Classify this TTRPG player message. Return JSON only, no explanation.
+        prompt=f"""Classify this TTRPG player message. Return JSON only, no explanation. For topics, figure out by yourself when reading the message
 
         Message: {message}
 
         Return exactly:
-        {{"intent": "rules_question|action_with_dice_roll|story_action|character_query|update_character_stats|update_npc_stats|npc_questions|lore_questions|world_question_from_rulebook",
+        {{"Intent": "rules_question|action_with_dice_roll|story_action|character_query|update_character_stats|update_npc_stats|npc_questions|lore_questions|world_question_from_rulebook",
         "topics": ["topic1", "topic2"],
         "roll_needed": "1d6 vs 2d6 or null",
         "roll_provided": "number or null"}}""",
@@ -31,6 +31,7 @@ def classify(message: str) -> Intent:
 
     try:
         data = json.loads(response["response"])
+        print(data)
         return Intent(**data)
     except Exception:
-        return Intent(intent="story_action", topics=[message[:50]])
+        return Intent(Intent="story_action", topics=[message[:50]])

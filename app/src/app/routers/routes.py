@@ -10,7 +10,7 @@ import app.controllers.turn as turns
 from app.middleware.auth import get_current_user
 from sse_starlette.sse import EventSourceResponse 
 from fastapi import Request 
-from app.services import rag, gm
+from app.services import rag, gm, classifier
 router = APIRouter()
 
 protected_router = APIRouter(
@@ -66,10 +66,16 @@ async def stream(body: Dict, request: Request,session_id):
     async def token_generator(session_id): 
         response = ""
         query = body["query"]
-        embedded_query = rag.get_embedding(query)
-        context = rag.get_context_from_query(embedded_query)
+        intent = classifier.classify(query)
+        context =[]
+        for i in range(len(intent.topics)):
+            embedded_topic = rag.get_embedding(intent.topics[i])
+            topic_context = rag.get_context_from_query(embedded_topic)
+            context.append(topic_context)
+        # embedded_query = rag.get_embedding(query)
+        # context = rag.get_context_from_query(embedded_query)
         turnsHistory = turns.get_turns(session_id)
-        async for token in gm.stream_gm_response(context,query,turnsHistory):
+        async for token in gm.stream_gm_response(str(intent.Intent),context,query,turnsHistory):
             if await request.is_disconnected():
                 break
             response += token
