@@ -12,7 +12,7 @@ import time
 session = db.get_db_session()
 
 async def stream_gm_response(intent,rag_context_from_query,query: str,history=""):
-    print("debug:",intent)
+    print("debug:",str(rag_context_from_query))
     output = ollama.generate(
         model="llama3.1:8b",
         stream=True,
@@ -97,6 +97,26 @@ def get_gm_response(rag_context_from_query,query: str):
 
     return output['response']
 
+def lore_questions_prompt(context,query:str)-> str:
+    #todo: add # SESSION HISTORY (what the player did ) and  WORLD STATE ( npcs, bosses, etc ):
+# {world_state}
+    return f""" 
+            You are a TTPRG Game Master who knows this world intimately.
+
+WORLD LORE FROM RULEBOOK:
+{context}
+
+
+PLAYER QUESTION: {query}
+
+Answer as someone who lives in this world and knows its history.
+Speak with atmosphere and weight — this is not a Wikipedia entry.
+Draw from the rulebook lore above and anything established in the session history.
+If the answer is not in the provided context, extrapolate carefully and stay consistent with the tone.
+2-4 sentences. Do not break immersion. Do not mention the rulebook.
+            """
+
 Prompt_map = {
-    "rules_question": rules_question_prompt
+    "rules_question": rules_question_prompt,
+    "lore_questions": lore_questions_prompt
 }

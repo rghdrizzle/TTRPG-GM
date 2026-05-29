@@ -17,7 +17,7 @@ def classify(message: str) -> Intent:
     # todo: use hermes agent calls instead
     response = ollama.generate(
         model="llama3.1:8b",
-        prompt=f"""Classify this TTRPG player message. Return JSON only, no explanation. For topics, figure out by yourself when reading the message
+        prompt=f"""Classify this TTRPG player message. Return JSON only, no explanation. For topics, figure out by yourself when reading the message. As for Intent, choose only one appropriately
 
         Message: {message}
 
