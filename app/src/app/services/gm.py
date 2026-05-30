@@ -118,5 +118,6 @@ If the answer is not in the provided context, extrapolate carefully and stay con
 
 Prompt_map = {
     "rules_question": rules_question_prompt,
-    "lore_questions": lore_questions_prompt
+    "lore_questions": lore_questions_prompt,
+    "world_question_from_rulebook": lore_questions_prompt
 }
