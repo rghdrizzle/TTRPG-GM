@@ -121,3 +121,14 @@ Prompt_map = {
     "lore_questions": lore_questions_prompt,
     "world_question_from_rulebook": lore_questions_prompt
 }
+
+
+def summarize_turns(turns: str) -> str:
+     output = ollama.generate(
+    model="llama3.1:8b",
+    prompt = f"""Summarize the turns into a meaniful summary whose main purpose to to capture the main events taken place in the last few turns. Capture important details like actions taken by player and consequences and whether the player met some npc 
+        Here is the Turns input: {turns}
+        """
+    )
+     
+     return output['response']

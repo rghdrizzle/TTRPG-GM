@@ -5,5 +5,6 @@ def fetch_rule():
 
 tool_map ={
     "rule_questions": [fetch_rule],
+    
 
 }
