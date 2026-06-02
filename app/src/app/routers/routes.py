@@ -75,6 +75,9 @@ async def stream(body: Dict, request: Request,session_id):
         # embedded_query = rag.get_embedding(query)
         # context = rag.get_context_from_query(embedded_query)
         turnsHistory = turns.get_turns(session_id)
+        if len(turnsHistory["turns"])%20 ==0:
+            summarized_turns = gm.summarize_turns(turnsHistory["turns"])
+            campaign.append_summary(summarized_turns)
         async for token in gm.stream_gm_response(str(intent.Intent),context,query,turnsHistory):
             if await request.is_disconnected():
                 break

@@ -34,3 +34,14 @@ def get_campaigns():
                 "campaigns": campaigns
             }
         }
+
+def append_summary(summary: str,campaign_id):
+    campaign = session.query(db.Campaign).filter_by(id=campaign_id).first()
+    if campaign is None:
+        return None
+    campaign.summary += summary
+
+    session.commit()
+    print("Log: summary appended")
+    return
+
