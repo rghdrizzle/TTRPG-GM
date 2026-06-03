@@ -4,6 +4,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_cohere import CohereEmbeddings
 from langchain_ollama import OllamaEmbeddings
 from langchain_ollama import OllamaLLM
+from app.services.retriever import bm25_retriever
+import Stemmer
 from app.db import db
 import ollama
 import time
@@ -26,3 +28,8 @@ def get_context_from_query(query_embedding, limit=5):
     chunk.content for chunk, _ in query
     ])
     return data
+
+def b25_search(query):
+    nodes = bm25_retriever.retrieve(query)
+    print(nodes)
+    return nodes
