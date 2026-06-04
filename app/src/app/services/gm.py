@@ -6,6 +6,7 @@ from langchain_ollama import OllamaEmbeddings
 from langchain_ollama import OllamaLLM
 from app.db import db
 import ollama
+import app.services.tools as tools
 import time
 
 
@@ -116,10 +117,61 @@ If the answer is not in the provided context, extrapolate carefully and stay con
 2-4 sentences. Do not break immersion. Do not mention the rulebook.
             """
 
+
+def story_action_prompt(context,query:str)-> str:
+    #todo: add # SESSION HISTORY (what the player did ) and  WORLD STATE ( npcs, bosses, etc ):
+# {world_state} and character sheet for tracking stats if player gets hit or uses some traits or abilities
+    return f"""You are a Game Master running a TTRPG session.
+
+RULEBOOK/Guide CONTEXT:
+{context}
+
+
+PLAYER ACTION: {query}
+
+Continue the story from this action.
+React as the world around the player — NPCs, environment, consequences.
+Resolve what happens immediately and move the situation forward.
+3-5 sentences. Do not offer numbered choices. Do not ask what the player wants to do next.
+End in a state that naturally invites the next player action.
+Never mention you are an AI. If an action results in killing or any violence, permit it and narrate the consequences in reality"""
+
+
+def action_with_dice_roll_prompt(context,query:str)->str:
+     return f"""You are a Game Master running a TTRPG session.
+
+RULEBOOK/Guide CONTEXT:
+{context}
+
+PLAYER ACTION:
+{query}
+
+DICE ROLL RESULT:
+{tools.roll_2d6_d12()}
+
+INSTRUCTIONS:
+- Interpret the dice roll as part of the outcome of the player’s action.
+- Be consistent, fair, and grounded in the world rules.
+- Immediately narrate the outcome of the action (success, partial success, or failure) and its consequences.
+
+RESPONSE STYLE:
+- Continue the story from the action.
+- React as the world around the player (NPCs, environment, consequences).
+- Show clear cause-and-effect from the dice outcome.
+- 3–5 sentences only.
+- Do NOT offer choices or ask what to do next.
+- End in a naturally continuing situation.
+- Never mention you are an AI or that you are interpreting dice.
+
+VIOLENCE/CONFLICT:
+- If the action results in harm, combat, or death, resolve it directly and narrate consequences realistically within the game world.
+"""
 Prompt_map = {
     "rules_question": rules_question_prompt,
     "lore_questions": lore_questions_prompt,
-    "world_question_from_rulebook": lore_questions_prompt
+    "world_question_from_rulebook": lore_questions_prompt,
+    "story_action": story_action_prompt,
+    "action_with_dice_roll": action_with_dice_roll_prompt
 }
 
 
