@@ -68,6 +68,7 @@ async def stream(body: Dict, request: Request,session_id):
         query = body["query"]
         intent = classifier.classify(query)
         context =[]
+        campaign_id = sessions.get_campaign_id_from_session()
         for i in range(len(intent.topics)):
             embedded_topic = rag.get_embedding(intent.topics[i])
             topic_context = rag.get_context_from_query(embedded_topic)
@@ -78,12 +79,12 @@ async def stream(body: Dict, request: Request,session_id):
         # embedded_query = rag.get_embedding(query)
         # context = rag.get_context_from_query(embedded_query)
         turnsHistory = turns.get_turns(session_id)
-        # summarized_turns =""
-        # if len(turnsHistory["payload"]["turns"])%20 ==0 and len(turnsHistory["payload"]["turns"])>1:
-        #     summarized_turns = gm.summarize_turns(turnsHistory["payload"]["turns"])
-        #     campaign.append_summary(summarized_turns,campaign_id=campaign_id)
-        # if len(turnsHistory["payload"]["turns"])>=20:
-        #     turnsHistory = summarized_turns
+        summarized_turns =""
+        if len(turnsHistory["payload"]["turns"])%20 ==0 and len(turnsHistory["payload"]["turns"])>1:
+            summarized_turns = gm.summarize_turns(turnsHistory["payload"]["turns"])
+            campaign.append_summary(summarized_turns,campaign_id=campaign_id)
+        if len(turnsHistory["payload"]["turns"])>=20:
+            turnsHistory = summarized_turns
         async for token in gm.stream_gm_response(str(intent.Intent),context,query,turnsHistory):
             if await request.is_disconnected():
                 break

@@ -35,3 +35,7 @@ def get_sessions(id):
                 "sessions": sessions
             }
         }
+
+def get_campaign_id_from_session(session_id):
+    sessions = dbSession.query(db.Sessions).filter(session_id).first()
+    return sessions.campaign_id
