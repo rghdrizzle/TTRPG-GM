@@ -98,7 +98,7 @@ def get_gm_response(rag_context_from_query,query: str):
 
     return output['response']
 
-def lore_questions_prompt(context,query:str)-> str:
+def lore_questions_prompt(context,query:str,history="",character_sheet="")-> str:
     #todo: add # SESSION HISTORY (what the player did ) and  WORLD STATE ( npcs, bosses, etc ):
 # {world_state}
     return f""" 
@@ -118,7 +118,7 @@ If the answer is not in the provided context, extrapolate carefully and stay con
             """
 
 
-def story_action_prompt(context,query:str)-> str:
+def story_action_prompt(context,query:str,history="",character_sheet="")-> str:
     #todo: add # SESSION HISTORY (what the player did ) and  WORLD STATE ( npcs, bosses, etc ):
 # {world_state} and character sheet for tracking stats if player gets hit or uses some traits or abilities
     return f"""You are a Game Master running a TTRPG session.
@@ -126,6 +126,11 @@ def story_action_prompt(context,query:str)-> str:
 RULEBOOK/Guide CONTEXT:
 {context}
 
+PLAYER HISTORY:
+{history}
+
+PLAYER CHARACTER SHEET:
+{character_sheet}
 
 PLAYER ACTION: {query}
 
@@ -137,7 +142,7 @@ End in a state that naturally invites the next player action.
 Never mention you are an AI. If an action results in killing or any violence, permit it and narrate the consequences in reality"""
 
 
-def action_with_dice_roll_prompt(context,query:str)->str:
+def action_with_dice_roll_prompt(context,query:str,history="",character_sheet="")->str:
      return f"""You are a Game Master running a TTRPG session.
 
 RULEBOOK/Guide CONTEXT:

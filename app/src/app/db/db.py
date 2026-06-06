@@ -84,6 +84,7 @@ class Turns(BaseModel):
     gm_response = Column(String)
     created_at = Column(DateTime, default=datetime.now)
 
+# Todo: work on implementing logic with this and add this into the game itself
 class Entities(BaseModel):
     __tablename__ = "entities"
     campaign_id = Column(UUID, ForeignKey("campaigns.id"))
@@ -106,6 +107,22 @@ class CharacterSheet(BaseModel):
     inventory   = Column(JSON)   
     traits      = Column(JSON)   
     notes       = Column(String)
+
+class Roooms(BaseModel):
+    __tablename__ = "rooms"
+    campaign_id = Column(UUID, ForeignKey("campaigns.id"))
+    session_id = Column(UUID, ForeignKey("sessions.id"))
+    invite_code = Column(String)
+    host_user_id = Column(UUID)
+    created_at = Column(DateTime, default=datetime.now)
+
+class Rooom_players(BaseModel):
+    __tablename__ = "rooms_players"
+    room_id       = Column(UUID, ForeignKey("rooms.id"))
+    user_id        = Column(UUID)
+    charactersheet_id = Column(UUID)
+    joined_at = Column(DateTime, default=datetime.now)
+
     
 Base.metadata.create_all(engine) # This creates all the tables in the engine
 
