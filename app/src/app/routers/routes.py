@@ -1,12 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends , WebSocket
 from typing import Dict
 from app.db.db import get_db_session
 from sqlalchemy.orm import Session
 from app.controllers.user import UserController
 from app.db.db import Document
-import app.controllers.campaign as campaign
-import app.controllers.sessions as sessions
-import app.controllers.turn as turns
+from app.controllers import campaign, sessions, turns, rooms
 from app.middleware.auth import get_current_user
 from sse_starlette.sse import EventSourceResponse 
 from fastapi import Request 
@@ -100,3 +98,17 @@ async def stream(body: Dict, request: Request,session_id):
 async def get_history(session_id):
     return turns.get_turns(session_id)
 
+@protected_router.post("/campaigns/{id}/sessions/{session_id}/rooms/new")
+async def create_room(body: Dict,id):
+    return rooms.create_new_room(body,id)
+
+@protected_router.post("/room/{room_id}/join")
+async def join_room(body: Dict,id):
+    return rooms.add_player_id_to_room(body,id)
+
+@protected_router.websocket("/sessions/{session_id}/rooms/{room_id}/ws")
+async def websocket_chat(websocket: WebSocket):
+    await websocket.accept()
+    while True:
+        data = await websocket.receive_json()
+        await websocket.send_json(f"{data}")

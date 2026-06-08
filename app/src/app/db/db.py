@@ -108,8 +108,9 @@ class CharacterSheet(BaseModel):
     traits      = Column(JSON)   
     notes       = Column(String)
 
-class Roooms(BaseModel):
+class Rooms(BaseModel):
     __tablename__ = "rooms"
+    name           = Column(String)
     campaign_id = Column(UUID, ForeignKey("campaigns.id"))
     session_id = Column(UUID, ForeignKey("sessions.id"))
     invite_code = Column(String)
