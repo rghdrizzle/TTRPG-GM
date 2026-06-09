@@ -4,7 +4,7 @@ from app.db.db import get_db_session
 from sqlalchemy.orm import Session
 from app.controllers.user import UserController
 from app.db.db import Document
-from app.controllers import campaign, sessions, turns, rooms
+from app.controllers import campaign, sessions, turn as turns, rooms
 from app.middleware.auth import get_current_user
 from sse_starlette.sse import EventSourceResponse 
 from fastapi import Request 
@@ -106,9 +106,9 @@ async def create_room(body: Dict,id):
 async def join_room(body: Dict,id):
     return rooms.add_player_id_to_room(body,id)
 
-@protected_router.websocket("/sessions/{session_id}/rooms/{room_id}/ws")
+@router.websocket("/sessions/{session_id}/rooms/{room_id}/ws")
 async def websocket_chat(websocket: WebSocket):
     await websocket.accept()
     while True:
         data = await websocket.receive_json()
-        await websocket.send_json(f"{data}")
+        await websocket.send_json(f"ahhahaha{data}")
