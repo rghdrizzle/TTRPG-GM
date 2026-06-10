@@ -11,18 +11,21 @@
 
   // ── State ────────────────────────────────────────────────
   let loading       = $state(true)
-  let checking      = $state(false)   // checking for existing room
-  let creating      = $state(false)   // creating a new room
+  let checking      = $state(false)
+  let creating      = $state(false)
   let error         = $state("")
   let existingRoom  = $state<any>(null)
   let sessionName   = $state("")
   let nodeId        = $state(Math.random().toString(36).substring(2, 10).toUpperCase())
-  let now           = $state("")
+
+  // Join-by-code state (lifted out of snippet — snippets can't hold $state)
+  let joinCode      = $state("")
+  let joinJoining   = $state(false)
+  let joinErr       = $state("")
 
   // ── Lifecycle ────────────────────────────────────────────
   onMount(async () => {
     requireAuth()
-    now = new Date().toLocaleString("en-GB", { hour12: false }).replace(",", "")
     await checkExistingRoom()
     loading = false
   })
@@ -85,6 +88,29 @@
       error = "CONNECTION LOST — RETRY"
     } finally {
       creating = false
+    }
+  }
+
+  // ── Join room by invite code ──────────────────────────────
+  async function joinByCode() {
+    if (!joinCode.trim()) return
+    joinJoining = true
+    joinErr     = ""
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/rooms/join/${joinCode.trim()}`,
+        { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } }
+      )
+      if (res.ok) {
+        const d = await res.json()
+        goto(`/rooms/${d?.payload?.room?.id}`)
+      } else {
+        joinErr = "INVALID CODE"
+      }
+    } catch {
+      joinErr = "CONNECTION LOST — RETRY"
+    } finally {
+      joinJoining = false
     }
   }
 </script>
@@ -289,7 +315,7 @@
                     Direct SSE stream to the GM. Fastest response. No room overhead.
                     Full access to character sheet and session history.
                   </p>
-                  <div class="display text-2xl text-white/30 group-hover:text-white/60 transition-colors">→</div>
+                  <div class="display text-2xl text-white/30">→</div>
                 </div>
               </div>
             </button>
@@ -395,9 +421,35 @@
 
           </div>
 
-          <!-- Join existing room by code -->
+          <!-- ── JOIN BY CODE ── -->
           <div class="mt-6 border-t border-white/8 pt-6">
-            <JoinByCode {campaignId} />
+            <div class="flex items-center gap-3">
+              <span class="text-white/20 text-xs tracking-widest whitespace-nowrap">JOIN BY CODE 加入</span>
+              <div class="flex gap-2 flex-1">
+                <div class="flex-1 border border-white/10 focus-within:border-white/30 transition-colors">
+                  <input
+                    type="text"
+                    bind:value={joinCode}
+                    placeholder="ENTER INVITE CODE"
+                    maxlength="8"
+                    onkeydown={(e) => e.key === "Enter" && joinByCode()}
+                    class="w-full bg-transparent px-4 py-2.5 text-xs text-white/70 mono placeholder-white/15"
+                    style="outline:none; text-transform:uppercase;"
+                  />
+                </div>
+                <button
+                  disabled={!joinCode.trim() || joinJoining}
+                  onclick={joinByCode}
+                  class="border border-white/15 hover:border-white hover:bg-white hover:text-black
+                         disabled:opacity-20 disabled:cursor-not-allowed
+                         transition-all px-5 py-2.5 text-xs tracking-widest text-white mono">
+                  {joinJoining ? "..." : "JOIN →"}
+                </button>
+              </div>
+              {#if joinErr}
+                <span class="text-red-400 text-xs">{joinErr}</span>
+              {/if}
+            </div>
           </div>
 
         {/if}
@@ -429,69 +481,3 @@
   </div>
 
 </div>
-
-<!-- ── JOIN BY CODE COMPONENT ── -->
-<script lang="ts" module>
-</script>
-
-{#snippet JoinByCode({ campaignId }: { campaignId: string })}
-  {@const state = { code: "state", joining: false, err: "" }}
-state(false)
-  <div class="flex items-center gap-3">
-    <span class="text-white/20 text-xs tracking-widest whitespace-nowrap">JOIN BY CODE 加入</span>
-    <div class="flex gap-2 flex-1">
-      <div class="flex-1 border border-white/10 focus-within:border-white/30 transition-colors">
-        <input
-          type="text"
-          bind:value={state.code}
-          placeholder="ENTER INVITE CODE"
-          maxlength="8"
-          class="w-full bg-transparent px-4 py-2.5 text-xs text-white/70 mono placeholder-white/15"
-          style="outline:none; text-transform:uppercase;"
-          onkeydown={async (e) => {
-            if (e.key !== "Enter" || !state.code.trim()) return
-            state.joining = true
-            state.err = ""
-            const res = await fetch(
-              `${import.meta.env.VITE_API_URL}/rooms/join/${state.code.trim()}`,
-              { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } }
-            )
-            state.joining = false
-            if (res.ok) {
-              const d = await res.json()
-              goto(`/rooms/${d?.payload?.room?.id}`)
-            } else {
-              state.err = "INVALID CODE"
-            }
-          }}
-        />
-      </div>
-      <button
-        disabled={!state.code.trim() || state.joining}
-        onclick={async () => {
-          if (!state.code.trim()) return
-          state.joining = true
-          state.err = ""
-          const res = await fetch(
-            `${import.meta.env.VITE_API_URL}/rooms/join/${state.code.trim()}`,
-            { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } }
-          )
-          state.joining = false
-          if (res.ok) {
-            const d = await res.json()
-            goto(`/rooms/${d?.payload?.room?.id}`)
-          } else {
-            state.err = "INVALID CODE"
-          }
-        }}
-        class="border border-white/15 hover:border-white hover:bg-white hover:text-black
-               disabled:opacity-20 disabled:cursor-not-allowed
-               transition-all px-5 py-2.5 text-xs tracking-widest text-white mono">
-        {state.joining ? "..." : "JOIN →"}
-      </button>
-    </div>
-    {#if state.err}
-      <span class="text-red-400 text-xs">{state.err}</span>
-    {/if}
-  </div>
-{/snippet}
