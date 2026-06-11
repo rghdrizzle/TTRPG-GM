@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends , WebSocket
+from fastapi import APIRouter, Depends , WebSocket, WebSocketDisconnect
 from typing import Dict
 from app.db.db import get_db_session
 from sqlalchemy.orm import Session
@@ -9,6 +9,8 @@ from app.middleware.auth import get_current_user
 from sse_starlette.sse import EventSourceResponse 
 from fastapi import Request 
 from app.services import rag, gm, classifier, retriever
+from app.services.websocket import WebSocketManager
+import json
 router = APIRouter()
 
 protected_router = APIRouter(
@@ -73,7 +75,7 @@ async def stream(body: Dict, request: Request,session_id):
             b25_topic = rag.b25_search(intent.topics[i])
             context.append(topic_context)
             for j in range(len(b25_topic)):
-                context.append(b25_topic[j].get_text())
+                context.append(b25_topic[j].get_text()) #todo: clean this text since it includes noise and metadata
         # embedded_query = rag.get_embedding(query)
         # context = rag.get_context_from_query(embedded_query)
         turnsHistory = turns.get_turns(session_id)
@@ -106,9 +108,34 @@ async def create_room(body: Dict,id):
 async def join_room(body: Dict,id):
     return rooms.add_player_id_to_room(body,id)
 
+socketManager = WebSocketManager() # A SINGLE INSTANCE PER SERVER TO MANAGE SOCKET CONNECTIONS AND IN-MEMORY MAP OF ROOM ID AND CONNECTIONS
 @router.websocket("/sessions/{session_id}/rooms/{room_id}/ws")
-async def websocket_chat(websocket: WebSocket):
-    await websocket.accept()
-    while True:
-        data = await websocket.receive_json()
-        await websocket.send_json(f"ahhahaha{data}")
+async def websocket_chat(websocket: WebSocket,room_id):
+    await socketManager.add_user_to_room(room_id,websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            message = {
+                "user_id": 1,
+                "room_id": room_id,
+                "message": data
+            }
+            await socketManager.broadcast_to_room(room_id, json.dumps(message))
+
+    except WebSocketDisconnect:
+        await socketManager.remove_user_from_room(room_id, websocket)
+
+        message = {
+            "user_id": 1,
+            "room_id": room_id,
+            "message": f"User {1} disconnected from room - {room_id}"
+        }
+        await socketManager.broadcast_to_room(room_id, json.dumps(message))
+
+
+
+
+    # await websocket.accept()
+    # while True:
+    #     data = await websocket.receive_json()
+    #     await websocket.send_json(f"ahhahaha{data}")
