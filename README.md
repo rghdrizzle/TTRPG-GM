@@ -263,7 +263,46 @@ Player message
 │ created_at│ DateTime             │
 └──────────────────────────────────┘
 ```
+## Redis-websocket flow
+┌─────────────────────────────────────────────────────────────┐
+│                     WebSocket Server                        │
+│                                                             │
+│  User joins room                                            │
+│       │                                                     │
+│       ▼                                                     │
+│  ┌─────────────┐    room exists?    ┌───────────────────┐   │
+│  │ accept ws   │──── YES ──────────▶│ append to         │   │
+│  └─────────────┘                   │ rooms[room_id]    │   │
+│       │ NO (new room)               └───────────────────┘   │
+│       ▼                                                     │
+│  ┌─────────────────────────────┐                            │
+│  │ rooms[room_id] = [socket]   │                            │
+│  │ redis.subscribe(room_id)    │                            │
+│  │ create_task(reader)  ───────┼──┐                         │
+│  └─────────────────────────────┘  │ once per room           │
+│                                   ▼                         │
+│                       ┌───────────────────┐                 │
+│  User sends message   │  reader task      │                 │
+│       │               │  (background)     │                 │
+│       ▼               │                   │                 │
+│  broadcast(msg)       │  loop:            │                 │
+│       │               │   get_message()   │                 │
+│       ▼               │   if msg:         │                 │
+│  redis.publish()─────▶│    for socket in  │                 │
+│                       │    rooms[room_id]:│                 │
+│                       │     send_text()   │                 │
+│                       │   sleep(0.01)     │                 │
+│                       └─────────┬─────────┘                 │
+│                                 │ last user leaves           │
+│  User leaves room               ▼                           │
+│       │               ┌───────────────────┐                 │
+│       ▼               │ task.cancel()     │                 │
+│  remove from          │ redis.unsubscribe │                 │
+│  rooms[room_id]       └───────────────────┘                 │
+└─────────────────────────────────────────────────────────────┘
 
+  1 pubsub reader task per room, not per user
+  reader lives until the last user leaves
 ---
 
 ## Services Structure ( needs an update )

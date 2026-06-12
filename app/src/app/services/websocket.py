@@ -28,7 +28,7 @@ class WebSocketManager:
             pubsub_subscriber = await self.redis_client.subscribe(room_id)
             asyncio.create_task(self._pubsub_data_reader(pubsub_subscriber))
     
-
+    # Pushes the message to the room
     async def broadcast(self,room_id, message)->None:
         await self.redis_client._publish(room_id,message)
     
@@ -38,7 +38,7 @@ class WebSocketManager:
         if len(self.rooms[room_id])==0:
             del self.rooms[room_id]
             await self.redis_client.unsubscribe(room_id)
-    
+    # this tasks one sends the message from the room to every other client
     async def _pubsub_data_reader(self, pubsub_subscriber):
         while True:
             message = await pubsub_subscriber.get_message(ignore_subscribe_messages=True)
