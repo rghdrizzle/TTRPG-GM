@@ -120,7 +120,7 @@ async def websocket_chat(websocket: WebSocket,room_id):
                 "room_id": room_id,
                 "message": data
             }
-            await socketManager.broadcast_to_room(room_id, json.dumps(message))
+            await socketManager.broadcast(room_id, json.dumps(message))
 
     except WebSocketDisconnect:
         await socketManager.remove_user_from_room(room_id, websocket)
@@ -130,7 +130,7 @@ async def websocket_chat(websocket: WebSocket,room_id):
             "room_id": room_id,
             "message": f"User {1} disconnected from room - {room_id}"
         }
-        await socketManager.broadcast_to_room(room_id, json.dumps(message))
+        await socketManager.broadcast(room_id, json.dumps(message))
 
 
 

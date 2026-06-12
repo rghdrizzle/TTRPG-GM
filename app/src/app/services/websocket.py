@@ -20,13 +20,13 @@ class WebSocketManager:
     async def add_user_to_room(self,room_id, websocket: WebSocket)->None:
         await websocket.accept()
         if room_id in self.rooms: # If room id exists in the rooms then just add websocket to the list of websockets for that room
-            self.rooms[room_id].appent(websocket)
+            self.rooms[room_id].append(websocket)
         else:
             self.rooms[room_id] = [websocket] # new room with the first connection
 
-        await self.redis_client.connect()
-        pubsub_subscriber = self.redis_client.subscribe(room_id)
-        asyncio.create_task(self._pubsub_data_reader(pubsub_subscriber))
+            await self.redis_client.connect()
+            pubsub_subscriber = await self.redis_client.subscribe(room_id)
+            asyncio.create_task(self._pubsub_data_reader(pubsub_subscriber))
     
 
     async def broadcast(self,room_id, message)->None:
