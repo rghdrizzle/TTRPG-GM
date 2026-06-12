@@ -264,6 +264,7 @@ Player message
 └──────────────────────────────────┘
 ```
 ## Redis-websocket flow
+```
 ┌─────────────────────────────────────────────────────────────┐
 │                     WebSocket Server                        │
 │                                                             │
@@ -300,6 +301,7 @@ Player message
 │  remove from          │ redis.unsubscribe │                 │
 │  rooms[room_id]       └───────────────────┘                 │
 └─────────────────────────────────────────────────────────────┘
+```
 
   1 pubsub reader task per room, not per user
   reader lives until the last user leaves

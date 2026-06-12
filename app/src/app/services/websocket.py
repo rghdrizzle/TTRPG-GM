@@ -40,7 +40,7 @@ class WebSocketManager:
             del self.rooms[room_id]
             await self.redis_client.unsubscribe(room_id)
             task = self.tasks.pop(room_id,None) # removing the task from the dict
-            if task:
+            if task: # JUST IN CASE IF THE TASK DOESNT EXIST
                 task.cancel() # cancel the task when the room is empty
                 try:
                     await task # wait for it to stop
