@@ -5,9 +5,9 @@
   import { requireAuth, getToken } from "$lib/auth"
 
   // ── Params ───────────────────────────────────────────────
-  // route: /campaigns/[id]/sessions/[session_id]/chat
+  // route: /campaigns/[id]/sessions/[session_id]/rooms/[room_id]
   const campaignId = $page.params.id
-  const sessionId  = $page.params.session_id
+  const sessionId = $page.params.session_id
 
   // ── State ────────────────────────────────────────────────
   let loading       = $state(true)

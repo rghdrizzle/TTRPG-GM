@@ -18,3 +18,14 @@ export function requireAuth(): string | null {
   }
   return token
 }
+
+
+export function getUserId(): string | null {
+  const token = localStorage.getItem("token")
+  if (!token) {
+    window.location.href = "/unauthorized"
+    return null
+  }
+
+  return "1"
+}
