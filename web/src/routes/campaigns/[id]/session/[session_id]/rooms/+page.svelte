@@ -35,13 +35,14 @@
     checking = true
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/sessions/${sessionId}/room`,
+        `${import.meta.env.VITE_API_URL}/sessions/${sessionId}/rooms/`,
         { headers: { Authorization: `Bearer ${getToken()}` } }
       )
       if (res.ok) {
         const data = await res.json()
-        existingRoom  = data?.payload?.room ?? null
-        sessionName   = data?.payload?.session_name ?? sessionId
+        const rooms = data?.payload?.room ?? data?.payload?.rooms ?? []
+        existingRoom = rooms.length > 0 ? rooms[0] : null
+        sessionName  = data?.payload?.session_name ?? sessionId
       }
     } catch {
       // no room found — that is fine
@@ -98,12 +99,13 @@
     joinErr     = ""
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/rooms/join/${joinCode.trim()}`,
+        `${import.meta.env.VITE_API_URL}/room/${joinCode.trim()}/join`,
         { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } }
       )
       if (res.ok) {
         const d = await res.json()
-        goto(`/rooms/${d?.payload?.room?.id}`)
+        const roomId = d?.payload?.room?.id ?? d
+        goto(`/rooms/${roomId}`)
       } else {
         joinErr = "INVALID CODE"
       }
@@ -345,7 +347,7 @@
                   <div class="rule-h pt-4 grid grid-cols-3 gap-4">
                     <div>
                       <div class="text-white/20 text-xs mb-1">ROOM CODE</div>
-                      <div class="display text-2xl text-white tracking-widest">{existingRoom.invite_code}</div>
+                      <div class="display text-2xl text-white tracking-widest">{existingRoom.invite_code ?? "—"}</div>
                     </div>
                     <div>
                       <div class="text-white/20 text-xs mb-1">PLAYERS</div>
@@ -360,7 +362,7 @@
                   <div class="mt-4 flex items-center justify-between">
                     <p class="text-white/25 text-xs leading-relaxed max-w-sm">
                       A room for this session already exists.
-                      Join to play with others using code <span class="text-white/50">{existingRoom.invite_code}</span>.
+                      Join to play with others using code <span class="text-white/50">{existingRoom.invite_code ?? "—"}</span>.
                     </p>
                     <div class="display text-2xl text-white/30">→</div>
                   </div>
