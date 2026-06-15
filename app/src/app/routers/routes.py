@@ -104,9 +104,13 @@ async def get_history(session_id):
 async def create_room(body: Dict,id):
     return rooms.create_new_room(body,id)
 
-@protected_router.post("/room/{room_id}/join")
-async def join_room(body: Dict,id):
-    return rooms.add_player_id_to_room(body,id)
+@protected_router.get("/sessions/{session_id}/rooms/")
+async def get_rooms(body: Dict,session_id):
+    return rooms.get_rooms(body,session_id)
+
+@protected_router.post("/room/{invite_code}/join")
+async def join_room(body: Dict,invite_code):
+    return rooms.add_player_id_to_room(body,invite_code)
 
 socketManager = WebSocketManager() # A SINGLE INSTANCE PER SERVER TO MANAGE SOCKET CONNECTIONS AND IN-MEMORY MAP OF ROOM ID AND CONNECTIONS
 @router.websocket("/sessions/{session_id}/rooms/{room_id}/ws")
