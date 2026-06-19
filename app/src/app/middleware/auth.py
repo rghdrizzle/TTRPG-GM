@@ -10,13 +10,13 @@ from fastapi import HTTPException, Depends, status
 from app.utils.constants import SECRET_KEY, ALGORITHM
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
-    credentials_exception = HTTPException(
+credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         print (payload)
@@ -34,3 +34,11 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
             return user_Obj
     except HTTPException as e:
         return JSONResponse(status_code=e.status_code, content={"message": e.detail})
+
+def get_username(token):
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    print (payload)
+    username: str = payload.get("username")
+    if username is None:
+        raise credentials_exception
+    return username

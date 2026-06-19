@@ -1,16 +1,17 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from "svelte"
   import { page } from "$app/stores"
-  import { requireAuth, getToken, getUserId } from "$lib/auth"
+  import { requireAuth, getToken, getUserId, getUsername } from "$lib/auth"
 
   // ── State ──────────────────────────────────────────────
-  let messages   = $state<{ userId: number | string; content: string; ts: string; system?: boolean }[]>([])
+  let messages   = $state<{ userId: string; content: string; ts: string; system?: boolean }[]>([])
   let input      = $state("")
   let connected  = $state(false)
   let connecting = $state(true)
   let now        = $state("")
   let nodeId     = $state("")
   let selfId     = $state<number | string | null>(null)
+  let username   = $state<string | null>(null)
   let chatEl     = $state<HTMLElement | null>(null)
   let inputEl    = $state<HTMLTextAreaElement | null>(null)
 
@@ -25,9 +26,10 @@
   // ── Lifecycle ──────────────────────────────────────────
   onMount(() => {
     requireAuth()
-    now    = new Date().toLocaleString("en-GB", { hour12: false }).replace(",", "")
-    nodeId = Math.random().toString(36).substring(2, 10).toUpperCase()
-    selfId = getUserId()
+    now      = new Date().toLocaleString("en-GB", { hour12: false }).replace(",", "")
+    nodeId   = Math.random().toString(36).substring(2, 10).toUpperCase()
+    selfId   = getUserId()
+    username = getUsername()
     connectSocket()
   })
 
@@ -59,7 +61,7 @@
       try {
         const data = JSON.parse(event.data)
         messages = [...messages, {
-          userId: data.user_id,
+          userId: data.username,
           content: data.message,
           ts: ts(),
         }]
@@ -248,8 +250,8 @@
             <span class="text-white/55">{messages.length}</span>
           </div>
           <div class="flex justify-between border-b border-white/8 pb-1.5">
-            <span class="text-white/25">SELF ID</span>
-            <span class="text-white/55">{selfId ?? "—"}</span>
+            <span class="text-white/25">USER</span>
+            <span class="text-white/55">{username ?? "—"}</span>
           </div>
           <div class="flex justify-between border-b border-white/8 pb-1.5">
             <span class="text-white/25">STATUS</span>
@@ -315,7 +317,7 @@
                   <p class="text-white/20 text-xs">{msg.content}</p>
                 </div>
 
-              {:else if msg.userId === selfId}
+              {:else if msg.userId === username}
                 <div class="msg-self pl-4">
                   <div class="flex items-center gap-4 mb-2">
                     <span class="display text-sm tracking-widest text-white">YOU</span>
@@ -328,7 +330,7 @@
               {:else}
                 <div class="msg-other pl-4">
                   <div class="flex items-center gap-4 mb-2">
-                    <span class="display text-sm tracking-widest text-white/45">USER {msg.userId}</span>
+                    <span class="display text-sm tracking-widest text-white/45">{msg.userId}</span>
                     <span class="text-white/10 text-xs">//</span>
                     <span class="text-white/20 text-xs">{formatTime(msg.ts)}</span>
                   </div>

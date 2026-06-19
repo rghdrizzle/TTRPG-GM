@@ -58,3 +58,18 @@ export function getUserId(): string | null {
     return null
   }
 }
+
+export function getUsername(): string | null {
+  const token = localStorage.getItem("token")
+  if (!token) {
+    window.location.href = "/unauthorized"
+    return null
+  }
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]))
+    return payload.username ?? null
+  } catch {
+    window.location.href = "/unauthorized"
+    return null
+  }
+}

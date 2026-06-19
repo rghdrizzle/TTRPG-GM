@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.controllers.user import UserController
 from app.db.db import Document
 from app.controllers import campaign, sessions, turn as turns, rooms
-from app.middleware.auth import get_current_user
+from app.middleware.auth import get_current_user, get_username
 from sse_starlette.sse import EventSourceResponse 
 from fastapi import Request 
 from app.services import rag, gm, classifier, retriever
@@ -115,12 +115,13 @@ async def join_room(body: Dict,invite_code):
 socketManager = WebSocketManager() # A SINGLE INSTANCE PER SERVER TO MANAGE SOCKET CONNECTIONS AND IN-MEMORY MAP OF ROOM ID AND CONNECTIONS
 @router.websocket("/sessions/{session_id}/rooms/{room_id}/ws")
 async def websocket_chat(websocket: WebSocket,room_id):
+    token = websocket.query_params.get("token")
     await socketManager.add_user_to_room(room_id,websocket)
     try:
         while True:
             data = await websocket.receive_text()
             message = {
-                "user_id": 1,
+                "username": get_username(token),
                 "room_id": room_id,
                 "message": data
             }
@@ -130,7 +131,7 @@ async def websocket_chat(websocket: WebSocket,room_id):
         await socketManager.remove_user_from_room(room_id, websocket)
 
         message = {
-            "user_id": 1,
+            "username": get_username(token),
             "room_id": room_id,
             "message": f"User {1} disconnected from room - {room_id}"
         }
