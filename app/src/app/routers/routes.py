@@ -113,6 +113,7 @@ async def join_room(body: Dict,invite_code):
     return rooms.add_player_id_to_room(body,invite_code)
 
 socketManager = WebSocketManager() # A SINGLE INSTANCE PER SERVER TO MANAGE SOCKET CONNECTIONS AND IN-MEMORY MAP OF ROOM ID AND CONNECTIONS
+#todo: fix the auth middleware with the websocket since this is linked with the router which is not protected
 @router.websocket("/sessions/{session_id}/rooms/{room_id}/ws")
 async def websocket_chat(websocket: WebSocket,room_id):
     token = websocket.query_params.get("token")
@@ -124,7 +125,7 @@ async def websocket_chat(websocket: WebSocket,room_id):
                 "username": get_username(token),
                 "room_id": room_id,
                 "message": data
-            }
+            } 
             await socketManager.broadcast(room_id, json.dumps(message))
 
     except WebSocketDisconnect:
