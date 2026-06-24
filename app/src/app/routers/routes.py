@@ -35,27 +35,27 @@ async def read_users():
 
 
 @protected_router.get("/test-auth",status_code=200)
-async def test():
+def test():
     return {"auth-status":"authenticated"}
 
 @protected_router.post("/campaigns/new")
-async def get_campaign(body: Dict,session: Session = Depends(get_db_session)):
+def get_campaign(body: Dict,session: Session = Depends(get_db_session)):
     documentObj = session.query(Document).filter_by(file_path="pdfs/fist.pdf").first() # temp. Todo: fetch document from selected document from a list when creating new campaign 
     campaign_id = campaign.create_new_campaign(body,documentObj.id)
     return {"id":  campaign_id}
 
 # todo: get campaign by user id
 @protected_router.get("/campaigns")
-async def get_campaigns_list():
+def get_campaigns_list():
     return campaign.get_campaigns()
 
 
 @protected_router.get("/campaigns/{id}/sessions")
-async def get_sessions_list(id):
+def get_sessions_list(id):
     return sessions.get_sessions(id)
 
 @protected_router.post("/campaigns/{id}/sessions/new")
-async def get_sessions_list(body: Dict,id):
+def get_sessions_list(body: Dict,id):
     return sessions.create_new_session(body,id)
 
 # List rulebooks when creating new campaign
@@ -75,8 +75,12 @@ async def create_room(body: Dict,id):
     return rooms.create_new_room(body,id)
 
 @protected_router.get("/sessions/{session_id}/rooms/")
-async def get_rooms(body: Dict,session_id):
+def get_rooms(body: Dict,session_id):
     return rooms.get_rooms(body,session_id)
+
+@protected_router.get("/sessions/{session_id}/rooms/{room_id}/invite")
+def get_code(room_id):
+    return rooms.get_invite_code(room_id)
 
 @protected_router.post("/room/{invite_code}/join")
 async def join_room(body: Dict,invite_code):
@@ -87,6 +91,14 @@ socketManager = WebSocketManager() # A SINGLE INSTANCE PER SERVER TO MANAGE SOCK
 @router.websocket("/sessions/{session_id}/rooms/{room_id}/ws")
 async def websocket_chat(websocket: WebSocket,room_id):
     token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=1008)
+        return
+    user = get_username(token)
+    if not user:
+        await websocket.close(code=1008)
+        return
+    # todo decode the token and get the exp and check with the current time and block if it is expired
     await socketManager.add_user_to_room(room_id,websocket)
     try:
         while True:

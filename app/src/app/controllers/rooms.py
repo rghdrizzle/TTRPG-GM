@@ -60,3 +60,7 @@ def add_player_id_to_room(player_info, invite_code):
      dbSession.add(player)
      dbSession.commit()
      return player.id
+
+def get_invite_code(room_id):
+    room = dbSession.query(db.Rooms).filter_by(id=room_id).first()
+    return room.invite_code

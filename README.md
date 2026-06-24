@@ -18,8 +18,10 @@ and can host multiple players in a shared room.
 │  /campaigns/[id]/character/create                                        │
 │  /campaigns/[id]/sessions                                                │
 │  /campaigns/[id]/sessions/[session_id]/chat                              │
+│  /rooms/[room_id]/lobby                                                  │
+│  /rooms/[room_id]/game                                                   │
 └───────────────────────────┬─────────────────────────────────────────────┘
-                            │ HTTP fetch + SSE stream
+                            │ HTTP fetch + SSE stream + WebSocket
                             │ Bearer JWT token
                             ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -33,6 +35,7 @@ and can host multiple players in a shared room.
 │  POST /campaigns/:id/characters                                         │
 │  POST /:session_id/chat          ← SSE stream (agent pipeline)          │
 │  GET  /:session_id/chat/history  ← load past turns                      │
+│  WS   /ws/room/:room_id          ← multiplayer WebSocket                │
 │                                                                          │
 │  JWT middleware · pydantic validation · CORS                            │
 └──────────┬────────────────────────────┬────────────────────────────────┘
@@ -42,15 +45,15 @@ and can host multiple players in a shared room.
 │     POSTGRESQL       │    │        REDIS          │
 │    localhost:5432    │    │    localhost:6379      │
 │                      │    │                       │
-│  users               │    │  (month 3 — rooms     │
-│  documents           │    │   + celery broker)    │
-│  chunks + pgvector   │    └──────────────────────┘
-│  campaigns           │
+│  users               │    │  pub/sub per room     │
+│  documents           │    │  round buffer staging │
+│  chunks + pgvector   │    │  celery broker        │
+│  campaigns           │    └──────────────────────┘
 │  sessions            │
 │  turns               │
 │  characters          │
-│  entities            |
-|   rooms              │
+│  entities            │
+│  rooms               │
 └──────────────────────┘
 ```
 
@@ -59,8 +62,10 @@ and can host multiple players in a shared room.
 ## Agent Pipeline (Chat Endpoint)
 
 ```
-Player message
+Player message(s)
       │
+      │  [multiplayer: all players' actions collected in round buffer
+      │   then flushed together via /gm resolve]
       ▼
 ┌─────────────────────┐
 │  INTENT CLASSIFIER  │  fast LLM call (llama3.1:8b)
@@ -88,7 +93,7 @@ Player message
 │   TOOLS EXECUTE     │  each tool returns a context string
 │                     │
 │  fetch_rag          →  hybrid search (dense + BM25) + rerank → top 8 chunks
-│  fetch_character    →  reads characters table
+│  fetch_character    →  reads characters table (all party members)
 │  fetch_history      →  reads turns table (last 12)
 │  fetch_world_state  →  reads entities table
 │  fetch_roll         →  parses dice notation, rolls, returns result
@@ -98,19 +103,52 @@ Player message
 ┌─────────────────────┐
 │  PROMPT_MAP lookup  │  picks template based on intent
 │  gm.py              │  fills template with tool results
+│                     │  includes <party_context> block with all
+│                     │  player characters for multiplayer sessions
 └──────────┬──────────┘
            │
            ▼
-┌─────────────────────┐
-│   GM NARRATOR       │  Ollama nous-hermes2pro (streaming)
-│                     │  SSE tokens → browser
-└──────────┬──────────┘
+┌─────────────────────────────┐
+│   GM NARRATOR (hermes3)     │  Ollama hermes3 with extended thinking
+│                             │  - internal reasoning pass first
+│                             │  - then narrative output
+│                             │  SSE tokens → broadcast to all room WebSockets
+└──────────┬──────────────────┘
            │
            ▼
 ┌─────────────────────┐
 │  SAVE TURN          │  save player_msg + gm_response to turns table
 │  CHECK SUMMARY      │  if turns % 20 == 0 → trigger summary (Celery)
 └─────────────────────┘
+```
+
+---
+
+## Multiplayer Round Buffer
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     Round Buffer Flow                        │
+│                                                              │
+│  Player A sends action  ──┐                                  │
+│  Player B sends action  ──┼──▶  Redis round buffer           │
+│  Player C sends action  ──┘     (keyed by room_id)          │
+│                                         │                    │
+│                                         │  GM or host        │
+│                                         │  calls /gm resolve │
+│                                         ▼                    │
+│                               combined query assembled       │
+│                               from all staged actions        │
+│                                         │                    │
+│                                         ▼                    │
+│                               agent pipeline runs once       │
+│                               with full party context        │
+│                                         │                    │
+│                                         ▼                    │
+│                               GM response streamed to        │
+│                               all room WebSockets via        │
+│                               Redis pub/sub broadcast        │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -149,7 +187,7 @@ Player message
       ▼
   merge + deduplicate by chunk id
       │
-      ▼( This step is missing )
+      ▼
   CrossEncoder reranker    scores (query, chunk) pairs
   ms-marco-MiniLM-L-6-v2  returns relevance scores
       │
@@ -162,7 +200,7 @@ Player message
 
 ---
 
-## Database Schema ( needs an update )
+## Database Schema
 
 ```
 ┌──────────────────────────────────┐
@@ -262,8 +300,23 @@ Player message
 │ description│ Text                │
 │ created_at│ DateTime             │
 └──────────────────────────────────┘
+
+┌──────────────────────────────────┐
+│              rooms               │
+├───────────┬──────────────────────┤
+│ id        │ String (UUID)  PK    │
+│ session_id│ String  FK           │
+│ invite_code│ String  UNIQUE      │  ← short alphanumeric join code
+│ host_id   │ String  FK → users   │
+│ status    │ String               │  lobby / active / closed
+│ created_at│ DateTime             │
+└──────────────────────────────────┘
 ```
-## Redis-websocket flow
+
+---
+
+## Redis-WebSocket Flow
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     WebSocket Server                        │
@@ -271,6 +324,13 @@ Player message
 │  User joins room                                            │
 │       │                                                     │
 │       ▼                                                     │
+│  ┌──────────────────────────────┐                          │
+│  │ extract JWT from query param │  ← token passed as       │
+│  │ verify + load user           │    ?token=... at connect  │
+│  │ reject if invalid/expired    │    (not from oauth2_scheme│
+│  └──────────┬───────────────────┘    — WS-safe dependency) │
+│             │                                               │
+│             ▼                                               │
 │  ┌─────────────┐    room exists?    ┌───────────────────┐   │
 │  │ accept ws   │──── YES ──────────▶│ append to         │   │
 │  └─────────────┘                   │ rooms[room_id]    │   │
@@ -301,20 +361,24 @@ Player message
 │  remove from          │ redis.unsubscribe │                 │
 │  rooms[room_id]       └───────────────────┘                 │
 └─────────────────────────────────────────────────────────────┘
-```
 
   1 pubsub reader task per room, not per user
   reader lives until the last user leaves
+  JWT extracted from query param, not Authorization header
+  presence tracked via connect/disconnect events → broadcast to room
+```
+
 ---
 
-## Services Structure ( needs an update )
+## Services Structure
 
 ```
 services/
 ├── rag.py          ← embedding + hybrid search (dense + BM25) + reranking
 ├── gm.py           ← PROMPT_MAP + 6 prompt templates + stream_gm_response
+│                      party_context block injected for multiplayer sessions
 ├── classifier.py   ← classify(message) → Intent dataclass
-└── tools.py        ← TOOL_MAP + fetch_rag, fetch_character,
+└── tools.py        ← TOOL_MAP + fetch_rag, fetch_character (all party members),
                        fetch_history, fetch_world_state, fetch_roll
 ```
 
@@ -345,6 +409,7 @@ Every 20 turns:
   → turns stay in DB forever (never deleted)
 
 GM prompt always contains:
+  <party_context>     all player characters in the room (multiplayer)
   <campaign_summary>  compressed history of everything before window
   <recent_turns>      last 12 turns verbatim
 ```
@@ -365,18 +430,21 @@ GM prompt always contains:
 | Sparse search | BM25 (rank-bm25 / LlamaIndex) | keyword search over chunks |
 | Reranker | CrossEncoder ms-marco-MiniLM | scores (query, chunk) relevance |
 | PDF parsing | PyPDFLoader + LangChain | loads and splits rulebook PDFs |
-| LLM (GM) | nous-hermes2pro via Ollama | better tool following than llama3 |
+| LLM (GM) | hermes3 via Ollama | extended thinking + narration |
 | LLM (classifier) | llama3.1:8b via Ollama | fast intent classification |
 | SSE streaming | sse-starlette | streams LLM tokens to browser |
+| WebSocket | FastAPI WebSocket | multiplayer real-time comms |
+| Pub/sub | Redis pub/sub | cross-room WebSocket broadcast |
 | Frontend | SvelteKit + Tailwind | lighter than Next.js |
 | Auth | JWT + python-jose | stateless token auth |
+| WS Auth | query param token + custom dep | oauth2_scheme incompatible with WS |
 | Package mgr | Poetry | virtualenv + dependency management |
 | Containers | Docker Compose | local Postgres + Redis |
-| Background | Celery + Redis | session summaries (planned) |
+| Background | Celery + Redis | session summaries |
 
 ---
 
-## Project Structure ( needs updating )
+## Project Structure
 
 ```
 TTRPG-GM/
@@ -397,10 +465,12 @@ TTRPG-GM/
 │       │   ├── session.py
 │       │   ├── turn.py
 │       │   ├── character.py
-│       │   └── entity.py
+│       │   ├── entity.py
+│       │   └── room.py
 │       ├── routers/
 │       │   ├── auth.py
-│       │   └── routes.py
+│       │   ├── routes.py
+│       │   └── ws.py          ← WebSocket room endpoints
 │       ├── services/
 │       │   ├── rag.py
 │       │   ├── gm.py
@@ -425,23 +495,29 @@ TTRPG-GM/
                     ├── character/create/+page.svelte
                     └── sessions/
                         ├── +page.svelte
-                        └── [session_id]/chat/+page.svelte
+                        ├── [session_id]/chat/+page.svelte
+                        └── [session_id]/rooms/
+                            └── [room_id]/
+                                ├── lobby/+page.svelte   ← invite code + ready state
+                                └── game/+page.svelte    ← shared narration + action input
 ```
 
 ---
 
-## Pages Built ( needs updating )
+## Pages Built
 
 ```
-/login                                          ← JWT auth
-/register                                       ← account creation
-/dashboard                                      ← campaign list
-/rulebooks                                      ← FIST rulebook hardcoded
-/unauthorized                                   ← no token redirect
-/campaigns/new                                  ← 3-phase campaign creation
-/campaigns/[id]/character/create               ← 5-phase character creation + dice
-/campaigns/[id]/sessions                        ← session list + create session
-/campaigns/[id]/sessions/[session_id]/chat     ← GM chat + SSE stream + history
+/login                                                   ← JWT auth
+/register                                                ← account creation
+/dashboard                                               ← campaign list
+/rulebooks                                               ← FIST rulebook hardcoded
+/unauthorized                                            ← no token redirect
+/campaigns/new                                           ← 3-phase campaign creation
+/campaigns/[id]/character/create                        ← 5-phase character creation + dice
+/campaigns/[id]/sessions                                 ← session list + create session
+/campaigns/[id]/sessions/[session_id]/chat              ← GM chat + SSE stream + history
+/campaigns/[id]/sessions/[session_id]/rooms/[room_id]/lobby  ← invite code + ready state
+/campaigns/[id]/sessions/[session_id]/rooms/[room_id]/game   ← multiplayer game view
 ```
 
 Design system — all pages:
@@ -450,6 +526,57 @@ Design system — all pages:
 - Fake browser chrome + ruler at top
 - Scrolling ticker + barcode at bottom
 - Chinese subtitle text
+
+---
+
+## Multiplayer UI — Lobby Page
+
+```
+┌─────────────────────────────────────────────────────┐
+│  ROOM LOBBY                                         │
+│                                                     │
+│  Invite Code: [ XKCD-42 ]  ← copy to clipboard     │
+│                                                     │
+│  Players                                            │
+│  ● Jake (host)     [READY]                          │
+│  ● Alex            [READY]                          │
+│  ● Morgan          [waiting...]                     │
+│                                                     │
+│  ● = green dot presence indicator                   │
+│                                                     │
+│  [ START GAME ]  ← host only, all-ready gated       │
+└─────────────────────────────────────────────────────┘
+```
+
+## Multiplayer UI — Game View
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  ┌────────────────────────────┐  ┌────────────────────────┐  │
+│  │   PARTY                   │  │   GM NARRATION         │  │
+│  │                           │  │                        │  │
+│  │  ● Jake                   │  │  [streaming GM text    │  │
+│  │    Rook / Soldier         │  │   broadcast to all     │  │
+│  │    HP: 12/14              │  │   players in room]     │  │
+│  │                           │  │                        │  │
+│  │  ● Alex                   │  └────────────────────────┘  │
+│  │    Sable / Medic          │                              │
+│  │    HP: 8/10               │  ┌────────────────────────┐  │
+│  │                           │  │   YOUR ACTION          │  │
+│  │  ○ Morgan  (disconnected) │  │                        │  │
+│  │    Vex / Hacker           │  │  [ type your action ]  │  │
+│  │    HP: 6/6                │  │  [ SUBMIT ]            │  │
+│  │                           │  │                        │  │
+│  └────────────────────────────┘  │  Staged: waiting for  │  │
+│                                  │  other players...     │  │
+│                                  └────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+
+  ● = connected (green dot)
+  ○ = disconnected (grey dot)
+  action input disabled while GM is narrating
+  all players see the same narration panel in real time
+```
 
 ---
 
@@ -466,6 +593,11 @@ Login    → POST /login (email, password)
 Protected page → onMount → requireAuth()
                → no token → /unauthorized
                → token found → Bearer header on every fetch
+
+WebSocket      → token appended as ?token=<jwt> query param
+               → custom get_ws_user dependency extracts + verifies
+               → oauth2_scheme not used (incompatible with WS upgrade)
+               → invalid/expired token → connection rejected before accept
 ```
 
 ---
@@ -483,7 +615,7 @@ poetry run alembic upgrade head
 # 3 — start Ollama
 ollama serve
 ollama pull nomic-embed-text
-ollama pull nous-hermes2pro
+ollama pull hermes3
 ollama pull llama3.1:8b
 
 # 4 — ingest rulebook (one time)
@@ -518,13 +650,33 @@ MONTH 2 — INTELLIGENCE
   ✓ Week 5 — Intent classifier + TOOL_MAP + PROMPT_MAP
               + hybrid RAG (BM25 + dense + reranking)
               + character creation page
-  ░ Week 6 — Rolling summary (every 20 turns → campaigns.summary)
+  ✓ Week 6 — Rolling summary (every 20 turns → campaigns.summary)
   ░ Week 7 — Entity extraction (Celery background tasks)
   ✓ Week 8 — Campaign dashboard with entity log
 
 MONTH 3 — MULTIPLAYER
   ✓ Week 9  — WebSocket rooms + Redis pub/sub
-  ░ Week 10 — Multiplayer UI
+              + round buffer (player actions staged, flushed via /gm resolve)
+              + WebSocket streaming of GM response to all room participants
+  ░ Week 10 — WebSocket auth hardening
+              · replace oauth2_scheme with custom get_ws_user dependency
+              · extract JWT from ?token= query param
+              · reject connection before accept on invalid/expired token
+
+              Multiplayer UI
+              · Room lobby page — invite code display, player list,
+                ready state per player, host-only Start button
+              · Game view — shared narration panel + per-player action input
+              · Live presence indicators (● connected / ○ disconnected)
+              · Player sidebar — mini character cards for full party
+
+              GM pipeline multiplayer support
+              · Switch GM model to hermes3 (extended thinking + narration)
+              · party_context block injected into all GM prompts
+                (all player characters included, not just the sender)
+              · fetch_character tool updated to return full party roster
+              · GM response broadcast to all room WebSockets via pub/sub
+
   ░ Week 11 — Polish + rate limiting
   ░ Week 12 — Deploy: Railway + Vercel
 ```
@@ -543,7 +695,7 @@ MONTH 3 — MULTIPLAYER
 | CrossEncoder | https://www.sbert.net/docs/cross_encoder/usage/usage.html |
 | ms-marco reranker | https://huggingface.co/cross-encoder/ms-marco-MiniLM-L-6-v2 |
 | Ollama | https://ollama.com |
-| nous-hermes2pro | https://ollama.com/library/nous-hermes2pro |
+| hermes3 | https://ollama.com/library/hermes3 |
 | sse-starlette | https://github.com/sysid/sse-starlette |
 | SvelteKit | https://svelte.dev/docs/kit/introduction |
 | Anthropic API | https://docs.anthropic.com/en/api/getting-started |
