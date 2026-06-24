@@ -63,37 +63,7 @@ async def get_sessions_list(body: Dict,id):
 # chat endpoint with session id
 @protected_router.post("/{session_id}/chat")
 async def stream(body: Dict, request: Request,session_id): 
-    async def token_generator(session_id): 
-        response = ""
-        query = body["query"]
-        intent = classifier.classify(query)
-        context =[]
-        campaign_id = sessions.get_campaign_id_from_session()
-        for i in range(len(intent.topics)):
-            embedded_topic = rag.get_embedding(intent.topics[i])
-            topic_context = rag.get_context_from_query(embedded_topic)
-            b25_topic = rag.b25_search(intent.topics[i])
-            context.append(topic_context)
-            for j in range(len(b25_topic)):
-                context.append(b25_topic[j].get_text()) #todo: clean this text since it includes noise and metadata
-        # embedded_query = rag.get_embedding(query)
-        # context = rag.get_context_from_query(embedded_query)
-        turnsHistory = turns.get_turns(session_id)
-        summarized_turns =""
-        if len(turnsHistory["payload"]["turns"])%20 ==0 and len(turnsHistory["payload"]["turns"])>1:
-            summarized_turns = gm.summarize_turns(turnsHistory["payload"]["turns"])
-            campaign.append_summary(summarized_turns,campaign_id=campaign_id)
-        if len(turnsHistory["payload"]["turns"])>=20:
-            turnsHistory = summarized_turns
-        async for token in gm.stream_gm_response(str(intent.Intent),context,query,turnsHistory):
-            if await request.is_disconnected():
-                break
-            response += token
-            yield {"data": token}
-
-        yield {"data":"[DONE]"}
-        turns.add_turn(query,response,session_id)
-    return EventSourceResponse(token_generator(session_id))
+    return EventSourceResponse(token_generator(body,request,session_id))
 
 
 @protected_router.get("/{session_id}/chat/history")
@@ -125,7 +95,8 @@ async def websocket_chat(websocket: WebSocket,room_id):
                 "username": get_username(token),
                 "room_id": room_id,
                 "message": data
-            } 
+            }
+             
             await socketManager.broadcast(room_id, json.dumps(message))
 
     except WebSocketDisconnect:
@@ -145,3 +116,34 @@ async def websocket_chat(websocket: WebSocket,room_id):
     # while True:
     #     data = await websocket.receive_json()
     #     await websocket.send_json(f"ahhahaha{data}")
+
+async def token_generator(body,request: Request, session_id): 
+        response = ""
+        query = body["message"] if body["query"] == "" else body["query"]
+        intent = classifier.classify(query)
+        context =[]
+        campaign_id = sessions.get_campaign_id_from_session()
+        for i in range(len(intent.topics)):
+            embedded_topic = rag.get_embedding(intent.topics[i])
+            topic_context = rag.get_context_from_query(embedded_topic)
+            b25_topic = rag.b25_search(intent.topics[i])
+            context.append(topic_context)
+            for j in range(len(b25_topic)):
+                context.append(b25_topic[j].get_text()) #todo: clean this text since it includes noise and metadata
+        # embedded_query = rag.get_embedding(query)
+        # context = rag.get_context_from_query(embedded_query)
+        turnsHistory = turns.get_turns(session_id)
+        summarized_turns =""
+        if len(turnsHistory["payload"]["turns"])%20 ==0 and len(turnsHistory["payload"]["turns"])>1:
+            summarized_turns = gm.summarize_turns(turnsHistory["payload"]["turns"])
+            campaign.append_summary(summarized_turns,campaign_id=campaign_id)
+        if len(turnsHistory["payload"]["turns"])>=20:
+            turnsHistory = summarized_turns
+        async for token in gm.stream_gm_response(str(intent.Intent),context,query,turnsHistory):
+            if await request.is_disconnected():
+                break
+            response += token
+            yield {"data": token}
+
+        yield {"data":"[DONE]"}
+        turns.add_turn(query,response,session_id)
