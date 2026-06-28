@@ -1,16 +1,22 @@
 from app.db import db
 from app.db.db import get_db_session
 from fastapi import HTTPException, status
+import string
+import secrets
+import random
 
 
 
 dbSession = get_db_session()
 
-def create_new_room(room_info,campaign_id):
+def create_new_room(room_info,campaign_id,session_id):
 
-    room = db.Sessions(
+    room = db.Rooms(
         name = room_info["name"],
-        campaign_id = campaign_id
+        campaign_id = campaign_id,
+        invite_code = get_invite_code(),
+        host_user_id = room_info["user_id"],
+        session_id = session_id
     )
     dbSession.add(room)
     dbSession.commit()
@@ -64,3 +70,10 @@ def add_player_id_to_room(player_info, invite_code):
 def get_invite_code(room_id):
     room = dbSession.query(db.Rooms).filter_by(id=room_id).first()
     return room.invite_code
+
+def generate_invite_code():
+    alphabets = string.ascii_letters + string.digits
+    invite_code = ""
+    for i in range(8):
+        invite_code += random.choice(alphabets)
+    return invite_code

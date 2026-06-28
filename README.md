@@ -368,6 +368,56 @@ Player message(s)
   presence tracked via connect/disconnect events → broadcast to room
 ```
 
+## Why Redis pub/sub — not direct broadcast
+
+Without Redis, broadcasting means the sender's WebSocket handler loops over
+every other connection and calls send() directly. This works, but only if all
+connections live in the same server process.
+
+```
+WITHOUT REDIS (single process only)
+
+  user A (worker 1) sends message
+       │
+       ▼
+  handler loops self.rooms[room_id]
+       │
+       ├──▶ send to user B (worker 1) ✓
+       └──▶ send to user C (worker 1) ✓
+
+  user D is on worker 2 — never reached ✗
+```
+
+With Redis, any process publishes to a channel. Every process subscribed to
+that channel receives it and fans out to its own local connections. Processes
+don't need to know about each other.
+
+```
+WITH REDIS (works across processes / machines)
+
+  user A (worker 1) sends message
+       │
+       ▼
+  redis.publish(room_id, msg)
+       │
+       ├──▶ worker 1 subscriber receives it
+       │         └──▶ sends to user B, user C (local sockets)
+       │
+       └──▶ worker 2 subscriber receives it
+                 └──▶ sends to user D (local socket)
+```
+
+For this project there is only one Uvicorn worker, so Redis is not strictly
+required for correctness right now. It is used anyway because:
+
+  1. the round buffer (staged player actions) needs a shared store that
+     survives across requests, which in-memory dicts cannot provide
+  2. Celery uses Redis as its task broker for background summarisation
+  3. when deploy time comes, scaling to multiple workers requires zero
+     changes to the WebSocket code — Redis already handles it
+
+```
+
 ---
 
 ## Services Structure

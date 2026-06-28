@@ -71,8 +71,8 @@ async def get_history(session_id):
     return turns.get_turns(session_id)
 
 @protected_router.post("/campaigns/{id}/sessions/{session_id}/rooms/new")
-async def create_room(body: Dict,id):
-    return rooms.create_new_room(body,id)
+async def create_room(body: Dict,id,session_id):
+    return rooms.create_new_room(body,id,session_id)
 
 @protected_router.get("/sessions/{session_id}/rooms/")
 def get_rooms(body: Dict,session_id):
@@ -98,13 +98,14 @@ async def websocket_chat(websocket: WebSocket,room_id):
     if not user:
         await websocket.close(code=1008)
         return
+        
     # todo decode the token and get the exp and check with the current time and block if it is expired
     await socketManager.add_user_to_room(room_id,websocket)
     try:
         while True:
             data = await websocket.receive_text()
             message = {
-                "username": get_username(token),
+                "username": user,
                 "room_id": room_id,
                 "message": data
             }
@@ -115,7 +116,7 @@ async def websocket_chat(websocket: WebSocket,room_id):
         await socketManager.remove_user_from_room(room_id, websocket)
 
         message = {
-            "username": get_username(token),
+            "username": user,
             "room_id": room_id,
             "message": f"User {1} disconnected from room - {room_id}"
         }
