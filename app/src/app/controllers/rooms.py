@@ -57,7 +57,12 @@ def get_rooms(player_info,id):
 
 def add_player_id_to_room(player_info, invite_code):
      room = dbSession.query(db.Rooms).filter_by(invite_code=invite_code).first()
-
+     player_count = dbSession.query(db.Rooom_players).filter_by(room_id=room.id).count()
+     if player_count>=6:
+        return {
+            "status": 200,
+            "message": "Room is full" 
+        }
      player = db.Rooom_players(
          room_id = room.id,
          user_id = player_info["id"],
@@ -69,7 +74,15 @@ def add_player_id_to_room(player_info, invite_code):
 
 def get_invite_code(room_id):
     room = dbSession.query(db.Rooms).filter_by(id=room_id).first()
-    return room.invite_code
+    return {
+            "status": 200,
+            "message": "room invite code",
+            "payload": [
+                {
+                    "invite_code": room.invite_code
+                }
+            ]
+        }
 
 def generate_invite_code():
     alphabets = string.ascii_letters + string.digits
