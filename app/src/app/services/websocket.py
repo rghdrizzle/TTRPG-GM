@@ -16,6 +16,7 @@ class WebSocketManager:
         self.rooms: dict ={}
         self.redis_client = RedisPubSubManager()
         self.tasks = {}
+        self.rooms_buffer : dict = {}
     
 
     async def add_user_to_room(self,room_id, websocket: WebSocket)->None:
@@ -60,4 +61,15 @@ class WebSocketManager:
                         await socket.send_text(data)
                     except Exception:
                         logging.exception( "Failed to send websocket message to socket %s",id(socket))
-        
+    
+    def submit_action(self, room_id, message,websocket):
+        action = {websocket:message}
+        if room_id in self.rooms_buffer:
+            # {1:[{ws:message},{ws2:message}]}
+            if any(websocket in d for d in self.rooms_buffer[room_id]):
+                return False
+            else:
+                self.rooms_buffer[room_id].append(action)
+        else:
+            self.rooms_buffer[room_id] = [action]
+        return True

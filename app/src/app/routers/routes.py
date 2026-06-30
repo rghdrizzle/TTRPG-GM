@@ -103,22 +103,31 @@ async def websocket_chat(websocket: WebSocket,room_id):
     await socketManager.add_user_to_room(room_id,websocket)
     try:
         while True:
-            data = await websocket.receive_text()
+            data = await websocket.receive_json()
             message = {
                 "username": user,
                 "room_id": room_id,
-                "message": data
+                "message": data[0][1],
+                "type"   : data[0][0]
             }
-             
-            await socketManager.broadcast(room_id, json.dumps(message))
-
+            if type=="chat":
+                await socketManager.broadcast(room_id, json.dumps(message))
+            elif type == "action":
+                # send it to round buffer
+               if not await socketManager.submit_action(room_id,json.dumps(message),websocket):
+                   message = {
+                        "username": user,
+                        "room_id": room_id,
+                        "message": f"User:{user}, You have already submitted an action, please wait for the round to finish"
+                    }
+                   await socketManager.broadcast(room_id, json.dumps(message))
     except WebSocketDisconnect:
         await socketManager.remove_user_from_room(room_id, websocket)
 
         message = {
             "username": user,
             "room_id": room_id,
-            "message": f"User {1} disconnected from room - {room_id}"
+            "message": f"User {user} disconnected from room - {room_id}"
         }
         await socketManager.broadcast(room_id, json.dumps(message))
 
