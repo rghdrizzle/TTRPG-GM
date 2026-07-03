@@ -118,6 +118,7 @@ async def websocket_chat(websocket: WebSocket,room_id):
                    message = {
                         "username": user,
                         "room_id": room_id,
+                        "type"   : "warning",
                         "message": f"User:{user}, You have already submitted an action, please wait for the round to finish"
                     }
                    await socketManager.broadcast(room_id, json.dumps(message))

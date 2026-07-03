@@ -8,415 +8,343 @@ and can host multiple players in a shared room.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              BROWSER                                     │
-│                          localhost:5173                                  │
-│                                                                          │
-│  /login  /register  /dashboard  /rulebooks  /unauthorized                │
-│  /campaigns/new                                                          │
-│  /campaigns/[id]/character/create                                        │
-│  /campaigns/[id]/sessions                                                │
-│  /campaigns/[id]/sessions/[session_id]/chat                              │
-│  /rooms/[room_id]/lobby                                                  │
-│  /rooms/[room_id]/game                                                   │
-└───────────────────────────┬─────────────────────────────────────────────┘
-                            │ HTTP fetch + SSE stream + WebSocket
-                            │ Bearer JWT token
-                            ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            FASTAPI                                       │
-│                         localhost:8000                                   │
-│                                                                          │
-│  POST /auth/register       POST /auth/login                             │
-│  POST /campaigns/new       GET  /campaigns                              │
-│  GET  /campaigns/:id/sessions                                           │
-│  POST /campaigns/:id/sessions/new                                       │
-│  POST /campaigns/:id/characters                                         │
-│  POST /:session_id/chat          ← SSE stream (agent pipeline)          │
-│  GET  /:session_id/chat/history  ← load past turns                      │
-│  WS   /ws/room/:room_id          ← multiplayer WebSocket                │
-│                                                                          │
-│  JWT middleware · pydantic validation · CORS                            │
-└──────────┬────────────────────────────┬────────────────────────────────┘
-           │                            │
-           ▼                            ▼
-┌──────────────────────┐    ┌──────────────────────┐
-│     POSTGRESQL       │    │        REDIS          │
-│    localhost:5432    │    │    localhost:6379      │
-│                      │    │                       │
-│  users               │    │  pub/sub per room     │
-│  documents           │    │  round buffer staging │
-│  chunks + pgvector   │    │  celery broker        │
-│  campaigns           │    └──────────────────────┘
-│  sessions            │
-│  turns               │
-│  characters          │
-│  entities            │
-│  rooms               │
-└──────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Browser["BROWSER — localhost:5173"]
+        direction TB
+        B1["/login  /register  /dashboard  /rulebooks  /unauthorized"]
+        B2["/campaigns/new"]
+        B3["/campaigns/[id]/character/create"]
+        B4["/campaigns/[id]/sessions"]
+        B5["/campaigns/[id]/sessions/[session_id]/chat"]
+        B6["/rooms/[room_id]/lobby"]
+        B7["/rooms/[room_id]/game"]
+    end
+
+    subgraph API["FASTAPI — localhost:8000"]
+        direction TB
+        A1["POST /auth/register · POST /auth/login"]
+        A2["POST /campaigns/new · GET /campaigns"]
+        A3["GET /campaigns/:id/sessions"]
+        A4["POST /campaigns/:id/sessions/new"]
+        A5["POST /campaigns/:id/characters"]
+        A6["POST /:session_id/chat  ← SSE stream (agent pipeline)"]
+        A7["GET /:session_id/chat/history  ← load past turns"]
+        A8["WS /ws/room/:room_id  ← multiplayer WebSocket"]
+        A9["JWT middleware · pydantic validation · CORS"]
+    end
+
+    subgraph PG["POSTGRESQL — localhost:5432"]
+        direction TB
+        P1["users"]
+        P2["documents"]
+        P3["chunks + pgvector"]
+        P4["campaigns"]
+        P5["sessions"]
+        P6["turns"]
+        P7["characters"]
+        P8["entities"]
+        P9["rooms"]
+    end
+
+    subgraph RD["REDIS — localhost:6379"]
+        direction TB
+        R1["pub/sub per room"]
+        R2["round buffer staging"]
+        R3["celery broker"]
+    end
+
+    Browser -->|"HTTP fetch + SSE stream + WebSocket — Bearer JWT token"| API
+    API --> PG
+    API --> RD
 ```
 
 ---
 
 ## Agent Pipeline (Chat Endpoint)
 
-```
-Player message(s)
-      │
-      │  [multiplayer: all players' actions collected in round buffer
-      │   then flushed together via /gm resolve]
-      ▼
-┌─────────────────────┐
-│  INTENT CLASSIFIER  │  fast LLM call (llama3.1:8b)
-│  classifier.py      │  returns Intent dataclass:
-│                     │  - intent type (one of 6)
-│                     │  - topics list for RAG
-│                     │  - roll_needed / roll_provided
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│   TOOL_MAP lookup   │  picks tools based on intent
-│   tools.py          │
-│                     │
-│  rules_question     →  fetch_rag
-│  lore_question      →  fetch_rag
-│  world_question     →  fetch_rag
-│  story_action       →  fetch_rag + fetch_history + fetch_world_state
-│  action_with_roll   →  fetch_rag + fetch_character + fetch_history + fetch_roll
-│  character_query    →  fetch_character
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│   TOOLS EXECUTE     │  each tool returns a context string
-│                     │
-│  fetch_rag          →  hybrid search (dense + BM25) + rerank → top 8 chunks
-│  fetch_character    →  reads characters table (all party members)
-│  fetch_history      →  reads turns table (last 12)
-│  fetch_world_state  →  reads entities table
-│  fetch_roll         →  parses dice notation, rolls, returns result
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  PROMPT_MAP lookup  │  picks template based on intent
-│  gm.py              │  fills template with tool results
-│                     │  includes <party_context> block with all
-│                     │  player characters for multiplayer sessions
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────────────┐
-│   GM NARRATOR (hermes3)     │  Ollama hermes3 with extended thinking
-│                             │  - internal reasoning pass first
-│                             │  - then narrative output
-│                             │  SSE tokens → broadcast to all room WebSockets
-└──────────┬──────────────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  SAVE TURN          │  save player_msg + gm_response to turns table
-│  CHECK SUMMARY      │  if turns % 20 == 0 → trigger summary (Celery)
-└─────────────────────┘
+```mermaid
+flowchart TD
+    Start(["Player message(s)<br/><i>multiplayer: all players' actions collected<br/>in round buffer, then flushed via /gm resolve</i>"])
+
+    Start --> Classifier
+
+    subgraph Classifier["INTENT CLASSIFIER — classifier.py"]
+        C1["fast LLM call (llama3.1:8b)<br/>returns Intent dataclass:<br/>intent type (1 of 6) · topics list for RAG · roll_needed / roll_provided"]
+    end
+
+    Classifier --> ToolMap
+
+    subgraph ToolMap["TOOL_MAP lookup — tools.py"]
+        direction LR
+        T1["rules_question → fetch_rag"]
+        T2["lore_question → fetch_rag"]
+        T3["world_question → fetch_rag"]
+        T4["story_action → fetch_rag + fetch_history + fetch_world_state"]
+        T5["action_with_roll → fetch_rag + fetch_character + fetch_history + fetch_roll"]
+        T6["character_query → fetch_character"]
+    end
+
+    ToolMap --> Tools
+
+    subgraph Tools["TOOLS EXECUTE"]
+        direction LR
+        TE1["fetch_rag → hybrid search (dense + BM25) + rerank → top 8 chunks"]
+        TE2["fetch_character → reads characters table (all party members)"]
+        TE3["fetch_history → reads turns table (last 12)"]
+        TE4["fetch_world_state → reads entities table"]
+        TE5["fetch_roll → parses dice notation, rolls, returns result"]
+    end
+
+    Tools --> Prompt
+
+    subgraph Prompt["PROMPT_MAP lookup — gm.py"]
+        PR1["picks template based on intent<br/>fills template with tool results<br/>includes party_context block for multiplayer sessions"]
+    end
+
+    Prompt --> Narrator
+
+    subgraph Narrator["GM NARRATOR — hermes3 (Ollama)"]
+        N1["extended thinking: internal reasoning pass first<br/>then narrative output<br/>SSE tokens → broadcast to all room WebSockets"]
+    end
+
+    Narrator --> Save
+
+    subgraph Save["SAVE TURN"]
+        S1["save player_msg + gm_response to turns table"]
+        S2["if turns % 20 == 0 → trigger summary (Celery)"]
+    end
 ```
 
 ---
 
 ## Multiplayer Round Buffer
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                     Round Buffer Flow                        │
-│                                                              │
-│  Player A sends action  ──┐                                  │
-│  Player B sends action  ──┼──▶  Redis round buffer           │
-│  Player C sends action  ──┘     (keyed by room_id)          │
-│                                         │                    │
-│                                         │  GM or host        │
-│                                         │  calls /gm resolve │
-│                                         ▼                    │
-│                               combined query assembled       │
-│                               from all staged actions        │
-│                                         │                    │
-│                                         ▼                    │
-│                               agent pipeline runs once       │
-│                               with full party context        │
-│                                         │                    │
-│                                         ▼                    │
-│                               GM response streamed to        │
-│                               all room WebSockets via        │
-│                               Redis pub/sub broadcast        │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    PA["Player A sends action"] --> Buf
+    PB["Player B sends action"] --> Buf
+    PC["Player C sends action"] --> Buf
+
+    Buf["Redis round buffer<br/>(keyed by room_id)"] --> Resolve
+
+    Resolve["GM or host calls /gm resolve"] --> Combine
+
+    Combine["Combined query assembled<br/>from all staged actions"] --> Pipeline
+
+    Pipeline["Agent pipeline runs once<br/>with full party context"] --> Broadcast
+
+    Broadcast["GM response streamed to all room WebSockets<br/>via Redis pub/sub broadcast"]
 ```
 
 ---
 
 ## RAG Pipeline
 
+### Ingest (one-time script)
+
+```mermaid
+flowchart TD
+    PDF["fist.pdf"] --> Loader["PyPDFLoader<br/>loads PDF pages as Documents"]
+    Loader --> Splitter["RecursiveCharacterTextSplitter<br/>splits into ~512 token chunks, 64 token overlap"]
+    Splitter --> Embed["OllamaEmbeddings — nomic-embed-text<br/>converts each chunk to 768-dim vector (local, free)"]
+    Embed --> Store["PostgreSQL chunks table<br/>stores content + vector in pgvector column"]
 ```
-                    INGEST (one-time script)
-                    ─────────────────────────
-  fist.pdf
-      │
-      ▼
-  PyPDFLoader              loads PDF pages as Documents
-      │
-      ▼
-  RecursiveCharacter       splits into ~512 token chunks
-  TextSplitter             with 64 token overlap
-      │
-      ▼
-  OllamaEmbeddings         converts each chunk to
-  nomic-embed-text         768-dimension vector (local, free)
-      │
-      ▼
-  PostgreSQL               stores content + vector
-  chunks table             in pgvector column
 
+### Query (every player message)
 
-                    QUERY (every player message)
-                    ──────────────────────────────
-  topics list (from classifier)
-      │
-      ├── for each topic:
-      │     dense search  → pgvector cosine similarity → top 5
-      │     sparse search → BM25 in-memory keyword search → top 5
-      │
-      ▼
-  merge + deduplicate by chunk id
-      │
-      ▼
-  CrossEncoder reranker    scores (query, chunk) pairs
-  ms-marco-MiniLM-L-6-v2  returns relevance scores
-      │
-      ▼
-  top 8 chunks             joined into context string
-      │
-      ▼
-  injected into GM prompt
+```mermaid
+flowchart TD
+    Topics["topics list (from classifier)"] --> Dense
+    Topics --> Sparse
+
+    Dense["dense search<br/>pgvector cosine similarity → top 5"] --> Merge
+    Sparse["sparse search<br/>BM25 in-memory keyword search → top 5"] --> Merge
+
+    Merge["merge + deduplicate by chunk id"] --> Rerank
+
+    Rerank["CrossEncoder reranker — ms-marco-MiniLM-L-6-v2<br/>scores (query, chunk) pairs"] --> Top8
+
+    Top8["top 8 chunks joined into context string"] --> Prompt["injected into GM prompt"]
 ```
 
 ---
 
 ## Database Schema
 
-```
-┌──────────────────────────────────┐
-│              users               │
-├───────────┬──────────────────────┤
-│ id        │ String (UUID)  PK    │
-│ username  │ String               │
-│ email     │ String  UNIQUE       │
-│ password  │ String  (bcrypt)     │
-│ created_at│ DateTime             │
-└──────────────────────────────────┘
+```mermaid
+erDiagram
+    documents ||--o{ chunks : "has"
+    campaigns ||--o{ sessions : "has"
+    campaigns ||--o{ characters : "has"
+    campaigns ||--o{ entities : "has"
+    sessions ||--o{ turns : "has"
+    sessions ||--o{ rooms : "has"
+    users ||--o{ characters : "owns"
+    users ||--o{ rooms : "hosts"
 
-┌──────────────────────────────────┐
-│            documents             │
-├───────────┬──────────────────────┤
-│ id        │ String (UUID)  PK    │
-│ title     │ String               │
-│ system    │ String               │
-│ file_path │ String  UNIQUE       │
-│ created_at│ DateTime             │
-└──────────────────────────────────┘
-           │
-           │ 1 → many
-           ▼
-┌──────────────────────────────────┐
-│              chunks              │
-├───────────┬──────────────────────┤
-│ id        │ String (UUID)  PK    │
-│ document_id│ String  FK          │
-│ content   │ Text                 │
-│ section   │ String               │
-│ embedding │ Vector(768)          │
-│ created_at│ DateTime             │
-└──────────────────────────────────┘
+    users {
+        string id PK "UUID"
+        string username
+        string email UK
+        string password "bcrypt"
+        datetime created_at
+    }
 
-┌──────────────────────────────────┐
-│            campaigns             │
-├───────────┬──────────────────────┤
-│ id        │ String (UUID)  PK    │
-│ name      │ String               │
-│ rulebook  │ String               │
-│ description│ Text                │
-│ max_players│ Integer             │
-│ summary   │ Text                 │  ← rolling compressed history
-│ created_at│ DateTime             │
-└──────────────────────────────────┘
-           │
-           │ 1 → many
-           ▼
-┌──────────────────────────────────┐
-│             sessions             │
-├───────────┬──────────────────────┤
-│ id        │ String (UUID)  PK    │
-│ campaign_id│ String  FK          │
-│ name      │ String               │
-│ status    │ String               │
-│ created_at│ DateTime             │
-└──────────────────────────────────┘
-           │
-           │ 1 → many
-           ▼
-┌──────────────────────────────────┐
-│               turns              │
-├───────────┬──────────────────────┤
-│ id        │ String (UUID)  PK    │
-│ session_id│ String  FK           │
-│ player_msg│ Text                 │
-│ gm_response│ Text                │
-│ created_at│ DateTime             │
-└──────────────────────────────────┘
+    documents {
+        string id PK "UUID"
+        string title
+        string system
+        string file_path UK
+        datetime created_at
+    }
 
-┌──────────────────────────────────┐
-│            characters            │
-├───────────┬──────────────────────┤
-│ id        │ String (UUID)  PK    │
-│ campaign_id│ String  FK          │
-│ user_id   │ String  FK           │
-│ name      │ String               │
-│ class     │ String               │
-│ level     │ Integer              │
-│ hp        │ Integer              │
-│ max_hp    │ Integer              │
-│ stats     │ JSON                 │  e.g. {"METAL":4,"WIRE":2,"HEART":3}
-│ inventory │ JSON                 │  [{name, qty}]
-│ traits    │ JSON                 │  ["Tough", "Quick"]
-│ notes     │ Text                 │
-│ created_at│ DateTime             │
-└──────────────────────────────────┘
+    chunks {
+        string id PK "UUID"
+        string document_id FK
+        text content
+        string section
+        vector embedding "768 dims"
+        datetime created_at
+    }
 
-┌──────────────────────────────────┐
-│             entities             │
-├───────────┬──────────────────────┤
-│ id        │ String (UUID)  PK    │
-│ campaign_id│ String  FK          │
-│ name      │ String               │
-│ type      │ String               │  NPC/location/item/faction
-│ description│ Text                │
-│ created_at│ DateTime             │
-└──────────────────────────────────┘
+    campaigns {
+        string id PK "UUID"
+        string name
+        string rulebook
+        text description
+        int max_players
+        text summary "rolling compressed history"
+        datetime created_at
+    }
 
-┌──────────────────────────────────┐
-│              rooms               │
-├───────────┬──────────────────────┤
-│ id        │ String (UUID)  PK    │
-│ session_id│ String  FK           │
-│ invite_code│ String  UNIQUE      │  ← short alphanumeric join code
-│ host_id   │ String  FK → users   │
-│ status    │ String               │  lobby / active / closed
-│ created_at│ DateTime             │
-└──────────────────────────────────┘
+    sessions {
+        string id PK "UUID"
+        string campaign_id FK
+        string name
+        string status
+        datetime created_at
+    }
+
+    turns {
+        string id PK "UUID"
+        string session_id FK
+        text player_msg
+        text gm_response
+        datetime created_at
+    }
+
+    characters {
+        string id PK "UUID"
+        string campaign_id FK
+        string user_id FK
+        string name
+        string class
+        int level
+        int hp
+        int max_hp
+        json stats "e.g. METAL:4, WIRE:2, HEART:3"
+        json inventory "[{name, qty}]"
+        json traits "[Tough, Quick]"
+        text notes
+        datetime created_at
+    }
+
+    entities {
+        string id PK "UUID"
+        string campaign_id FK
+        string name
+        string type "NPC/location/item/faction"
+        text description
+        datetime created_at
+    }
+
+    rooms {
+        string id PK "UUID"
+        string session_id FK
+        string invite_code UK "short alphanumeric join code"
+        string host_id FK
+        string status "lobby/active/closed"
+        datetime created_at
+    }
 ```
 
 ---
 
 ## Redis-WebSocket Flow
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     WebSocket Server                        │
-│                                                             │
-│  User joins room                                            │
-│       │                                                     │
-│       ▼                                                     │
-│  ┌──────────────────────────────┐                          │
-│  │ extract JWT from query param │  ← token passed as       │
-│  │ verify + load user           │    ?token=... at connect  │
-│  │ reject if invalid/expired    │    (not from oauth2_scheme│
-│  └──────────┬───────────────────┘    — WS-safe dependency) │
-│             │                                               │
-│             ▼                                               │
-│  ┌─────────────┐    room exists?    ┌───────────────────┐   │
-│  │ accept ws   │──── YES ──────────▶│ append to         │   │
-│  └─────────────┘                   │ rooms[room_id]    │   │
-│       │ NO (new room)               └───────────────────┘   │
-│       ▼                                                     │
-│  ┌─────────────────────────────┐                            │
-│  │ rooms[room_id] = [socket]   │                            │
-│  │ redis.subscribe(room_id)    │                            │
-│  │ create_task(reader)  ───────┼──┐                         │
-│  └─────────────────────────────┘  │ once per room           │
-│                                   ▼                         │
-│                       ┌───────────────────┐                 │
-│  User sends message   │  reader task      │                 │
-│       │               │  (background)     │                 │
-│       ▼               │                   │                 │
-│  broadcast(msg)       │  loop:            │                 │
-│       │               │   get_message()   │                 │
-│       ▼               │   if msg:         │                 │
-│  redis.publish()─────▶│    for socket in  │                 │
-│                       │    rooms[room_id]:│                 │
-│                       │     send_text()   │                 │
-│                       │   sleep(0.01)     │                 │
-│                       └─────────┬─────────┘                 │
-│                                 │ last user leaves           │
-│  User leaves room               ▼                           │
-│       │               ┌───────────────────┐                 │
-│       ▼               │ task.cancel()     │                 │
-│  remove from          │ redis.unsubscribe │                 │
-│  rooms[room_id]       └───────────────────┘                 │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Join["User joins room"] --> Auth
 
-  1 pubsub reader task per room, not per user
-  reader lives until the last user leaves
-  JWT extracted from query param, not Authorization header
-  presence tracked via connect/disconnect events → broadcast to room
+    Auth["extract JWT from query param (?token=...)<br/>verify + load user<br/>reject if invalid/expired<br/><i>not from oauth2_scheme — WS-safe dependency</i>"] --> Exists
+
+    Exists{"room exists?"}
+    Exists -->|"YES"| AcceptExisting["accept ws<br/>append to rooms[room_id]"]
+    Exists -->|"NO — new room"| CreateRoom["rooms[room_id] = [socket]<br/>redis.subscribe(room_id)<br/>create_task(reader) — once per room"]
+
+    CreateRoom --> Reader
+    AcceptExisting --> Ready["room ready"]
+
+    subgraph Reader["reader task (background, 1 per room)"]
+        RLoop["loop:<br/>get_message()<br/>if msg: for socket in rooms[room_id]: send_text()<br/>sleep(0.01)"]
+    end
+
+    UserSend["User sends message"] --> Broadcast["broadcast(msg)"] --> Publish["redis.publish()"] --> Reader
+
+    UserLeave["User leaves room"] --> Remove["remove from rooms[room_id]"]
+    Remove --> LastCheck{"last user in room?"}
+    LastCheck -->|"YES"| Cleanup["task.cancel()<br/>redis.unsubscribe"]
+    LastCheck -->|"NO"| Done["done"]
 ```
+
+**Notes:**
+- 1 pubsub reader task per room, not per user
+- reader lives until the last user leaves
+- JWT extracted from query param, not Authorization header
+- presence tracked via connect/disconnect events → broadcast to room
+
+---
 
 ## Why Redis pub/sub — not direct broadcast
 
 Without Redis, broadcasting means the sender's WebSocket handler loops over
-every other connection and calls send() directly. This works, but only if all
+every other connection and calls `send()` directly. This works, but only if all
 connections live in the same server process.
 
-```
-WITHOUT REDIS (single process only)
-
-  user A (worker 1) sends message
-       │
-       ▼
-  handler loops self.rooms[room_id]
-       │
-       ├──▶ send to user B (worker 1) ✓
-       └──▶ send to user C (worker 1) ✓
-
-  user D is on worker 2 — never reached ✗
+```mermaid
+flowchart TD
+    subgraph Worker1_only["WITHOUT REDIS — single process only"]
+        A1["user A (worker 1) sends message"] --> Loop["handler loops self.rooms[room_id]"]
+        Loop --> SB["send to user B (worker 1) ✓"]
+        Loop --> SC["send to user C (worker 1) ✓"]
+        Loop -.-> SD["user D is on worker 2 — never reached ✗"]
+    end
 ```
 
 With Redis, any process publishes to a channel. Every process subscribed to
 that channel receives it and fans out to its own local connections. Processes
 don't need to know about each other.
 
-```
-WITH REDIS (works across processes / machines)
-
-  user A (worker 1) sends message
-       │
-       ▼
-  redis.publish(room_id, msg)
-       │
-       ├──▶ worker 1 subscriber receives it
-       │         └──▶ sends to user B, user C (local sockets)
-       │
-       └──▶ worker 2 subscriber receives it
-                 └──▶ sends to user D (local socket)
+```mermaid
+flowchart TD
+    subgraph MultiWorker["WITH REDIS — works across processes / machines"]
+        UA["user A (worker 1) sends message"] --> Pub["redis.publish(room_id, msg)"]
+        Pub --> W1["worker 1 subscriber receives it"]
+        Pub --> W2["worker 2 subscriber receives it"]
+        W1 --> SendBC["sends to user B, user C (local sockets)"]
+        W2 --> SendD["sends to user D (local socket)"]
+    end
 ```
 
 For this project there is only one Uvicorn worker, so Redis is not strictly
 required for correctness right now. It is used anyway because:
 
-  1. the round buffer (staged player actions) needs a shared store that
-     survives across requests, which in-memory dicts cannot provide
-  2. Celery uses Redis as its task broker for background summarisation
-  3. when deploy time comes, scaling to multiple workers requires zero
-     changes to the WebSocket code — Redis already handles it
-
-```
+1. the round buffer (staged player actions) needs a shared store that
+   survives across requests, which in-memory dicts cannot provide
+2. Celery uses Redis as its task broker for background summarisation
+3. when deploy time comes, scaling to multiple workers requires zero
+   changes to the WebSocket code — Redis already handles it
 
 ---
 
@@ -449,20 +377,24 @@ services/
 
 ## Rolling Summary
 
+```mermaid
+flowchart TD
+    Trigger["Every 20 turns"] --> Fetch["fetch turns 1-20 (oldest unsummarised batch)"]
+    Fetch --> LLM["call LLM with compression prompt"]
+    LLM --> Preserve["preserves: NPC names, locations,<br/>player decisions, plot threads"]
+    LLM --> Discard["discards: individual rolls,<br/>repeated attempts, small talk"]
+    Preserve --> Append["append result to campaigns.summary"]
+    Discard --> Append
+    Append --> Keep["turns stay in DB forever (never deleted)"]
 ```
-Every 20 turns:
-  → fetch turns 1-20 (oldest unsummarised batch)
-  → call LLM with compression prompt
-  → preserves: NPC names, locations, player decisions, plot threads
-  → discards: individual rolls, repeated attempts, small talk
-  → append result to campaigns.summary
-  → turns stay in DB forever (never deleted)
 
 GM prompt always contains:
-  <party_context>     all player characters in the room (multiplayer)
-  <campaign_summary>  compressed history of everything before window
-  <recent_turns>      last 12 turns verbatim
-```
+
+| Block | Contents |
+|---|---|
+| `<party_context>` | all player characters in the room (multiplayer) |
+| `<campaign_summary>` | compressed history of everything before window |
+| `<recent_turns>` | last 12 turns verbatim |
 
 ---
 
@@ -632,22 +564,42 @@ Design system — all pages:
 
 ## Auth Flow
 
-```
-Register → POST /register (username, email, password)
-         → bcrypt hash → insert user → 200 OK → redirect /login
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant B as Backend
 
-Login    → POST /login (email, password)
-         → verify hash → { status:200, payload: { token } }
-         → localStorage.setItem("token") → redirect /dashboard
+    U->>F: fill register form (username, email, password)
+    F->>B: POST /register
+    B->>B: bcrypt hash → insert user
+    B-->>F: 200 OK
+    F-->>U: redirect /login
 
-Protected page → onMount → requireAuth()
-               → no token → /unauthorized
-               → token found → Bearer header on every fetch
+    U->>F: fill login form (email, password)
+    F->>B: POST /login
+    B->>B: verify hash
+    B-->>F: { status:200, payload: { token } }
+    F->>F: localStorage.setItem("token")
+    F-->>U: redirect /dashboard
 
-WebSocket      → token appended as ?token=<jwt> query param
-               → custom get_ws_user dependency extracts + verifies
-               → oauth2_scheme not used (incompatible with WS upgrade)
-               → invalid/expired token → connection rejected before accept
+    U->>F: visit protected page
+    F->>F: onMount → requireAuth()
+    alt no token
+        F-->>U: redirect /unauthorized
+    else token found
+        F->>B: fetch with Bearer header
+    end
+
+    U->>F: open WebSocket
+    F->>B: connect ws?token=<jwt>
+    B->>B: get_ws_user dependency extracts + verifies token
+    Note over B: oauth2_scheme not used (incompatible with WS upgrade)
+    alt invalid/expired token
+        B-->>F: connection rejected before accept
+    else valid token
+        B-->>F: connection accepted
+    end
 ```
 
 ---
